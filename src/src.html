@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14161b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Songtool">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Songtool</title>
+<style>
+  :root {
+    --bg: #14161b; --panel: #1d2027; --panel2: #262a33; --line: #323743;
+    --text: #eceef2; --muted: #8b92a1; --accent: #f0b429; --good: #3ecf8e; --warn: #f07a5a; --chord: #7cb7ff;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; }
+  header h1 span { color: var(--accent); }
+  .settings { display: flex; gap: 6px; }
+  .seg { display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { background: none; border: 0; color: var(--muted); padding: 6px 10px; font-size: 13px; cursor: pointer; }
+  .seg button.on { background: var(--panel2); color: var(--text); }
+  .songbar { display: flex; gap: 8px; align-items: center; }
+  select, input[type=text], textarea { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; font-size: 15px; font-family: inherit; }
+  select { min-width: 0; }
+  .songbar select { flex: 1; }
+  .tabs { display: flex; gap: 6px; }
+  .tabs button { flex: 1; background: var(--panel); border: 1px solid var(--line); color: var(--muted); padding: 10px; border-radius: 10px; font-size: 15px; cursor: pointer; }
+  .tabs button.on { color: var(--text); border-color: var(--accent); }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+  .live { text-align: center; }
+  .note { font-size: 72px; font-weight: 700; line-height: 1; min-height: 72px; transition: color .15s; }
+  .note sub { font-size: 28px; font-weight: 500; color: var(--muted); margin-left: 4px; vertical-align: baseline; }
+  .note.idle { color: var(--line); }
+  .note.ok { color: var(--good); }
+  .meta { color: var(--muted); font-size: 13px; margin-top: 4px; min-height: 17px; font-variant-numeric: tabular-nums; }
+  .meter { position: relative; height: 30px; margin: 8px auto 2px; max-width: 420px; }
+  .meter .scale { position: absolute; inset: 13px 0 auto 0; height: 4px; background: var(--panel2); border-radius: 2px; }
+  .meter .zone { position: absolute; top: 9px; height: 12px; left: 40%; width: 20%; background: rgba(62,207,142,.18); border-radius: 4px; }
+  .meter .center { position: absolute; left: 50%; top: 4px; width: 2px; height: 22px; background: var(--muted); transform: translateX(-1px); }
+  .meter .needle { position: absolute; left: 50%; top: 0; width: 4px; height: 30px; border-radius: 2px; background: var(--accent); transform: translateX(-2px); transition: left .1s linear, opacity .2s; opacity: 0; }
+  .meter-labels { display: flex; justify-content: space-between; max-width: 420px; margin: 0 auto; font-size: 11px; color: var(--muted); }
+  canvas#trace { width: 100%; height: 120px; display: block; margin-top: 10px; border-radius: 10px; background: #111318; }
+  .level { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .lvl { flex: 1; height: 5px; background: var(--panel2); border-radius: 3px; overflow: hidden; }
+  .lvl div { height: 100%; width: 0; background: var(--good); transition: width .06s linear; }
+
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: center; }
+  button.btn { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 10px;
+    padding: 11px 14px; font-size: 15px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-family: inherit; }
+  button.btn:active { transform: scale(.97); }
+  button.btn.primary { background: var(--accent); border-color: var(--accent); color: #1a1a1a; font-weight: 600; }
+  button.btn.big { padding: 14px 20px; font-size: 17px; }
+  button.btn.sm { padding: 6px 10px; font-size: 13px; }
+  button.btn.ghost { background: none; }
+  button.btn[disabled] { opacity: .4; cursor: default; }
+  .target { font-size: 12px; color: var(--muted); width: 100%; text-align: center; }
+  .target b { color: var(--accent); font-weight: 600; }
+  .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); cursor: pointer; user-select: none; }
+  .toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+
+  .songhead { display: flex; flex-direction: column; gap: 10px; }
+  .songhead input.title { font-size: 18px; font-weight: 600; width: 100%; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 14px; color: var(--muted); }
+  .row select { font-size: 14px; padding: 7px 8px; }
+  .tp { display: inline-flex; align-items: center; gap: 4px; }
+  .tp button { width: 34px; justify-content: center; }
+
+  /* Songteile */
+  .secs { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+  .sec { border: 1px solid var(--line); border-radius: 12px; background: var(--bg); overflow: hidden; }
+  .sec-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; background: var(--panel2); border-bottom: 1px solid var(--line); }
+  .sec-head select { background: none; border: 0; font-weight: 700; font-size: 15px; padding: 2px 0; color: var(--text); }
+  .sec-head .num { font-weight: 700; color: var(--muted); margin-left: -2px; }
+  .sec-head .acts { margin-left: auto; display: flex; gap: 4px; }
+  .sec-body { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .sec textarea { width: 100%; resize: none; overflow: hidden; line-height: 1.5; min-height: 46px; }
+  .pv { display: flex; flex-direction: column; gap: 2px; }
+  .pl { border-left: 3px solid transparent; padding: 2px 0 2px 8px; border-radius: 2px; cursor: pointer; }
+  .pl.active { border-left-color: var(--accent); background: rgba(240,180,41,.06); }
+  .pl .ls { margin: 0; }
+  .nstrip { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0 4px; }
+  .chip { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 4px 3px 7px;
+    font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+  .chip small { color: var(--muted); font-weight: 400; font-size: 10px; margin-left: -3px; }
+  .chip .x { color: var(--muted); font-weight: 400; padding: 0 3px; }
+  .chip.playing { border-color: var(--accent); }
+  .empty { color: var(--muted); font-size: 12px; }
+  .addsec { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin-top: 12px; }
+
+  /* Lead-Sheet-Darstellung */
+  .ls { display: flex; flex-wrap: wrap; align-items: flex-end; row-gap: 4px; }
+  .u { display: inline-flex; flex-direction: column; padding: 0 1px; border-radius: 5px; cursor: pointer; min-width: 12px; }
+  .u:hover { background: rgba(255,255,255,.05); }
+  .u.we { margin-right: 9px; }
+  .u .c { color: var(--chord); font-weight: 700; font-size: 14px; min-height: 18px; white-space: nowrap; }
+  .u .c.add { color: #3a4050; font-weight: 400; }
+  .u .s { font-size: 16px; white-space: pre; }
+  .u .n { color: var(--muted); font-size: 10px; min-height: 12px; white-space: nowrap; }
+  .hide-notes .u .n { display: none; }
+
+  .sheet-view { padding: 22px; }
+  .sheet-view h2 { margin: 0 0 4px; font-size: 24px; }
+  .sheet-view .sub { color: var(--muted); font-size: 14px; margin-bottom: 14px; }
+  .sheet-view .sh { font-weight: 700; color: var(--accent); margin: 16px 0 6px; font-size: 14px; letter-spacing: .3px; }
+  .sheet-view .ls { margin: 0 0 8px; }
+  .sheet-view .u { cursor: default; }
+  .sheet-view .u .c.add { visibility: hidden; }
+  .sheet-view .u .s { font-size: 18px; }
+  .sheet-view .u .c { font-size: 15px; }
+  .sheet-view .ls.noch .u .c { display: none; }
+  .sheet-view.hide-notes .u { padding: 0; min-width: 0; }
+
+  .hint { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 10px 0 0; }
+  .err { color: var(--warn); font-size: 14px; margin-top: 8px; }
+  .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    background: var(--panel2); border: 1px solid var(--line); padding: 10px 16px; border-radius: 10px; font-size: 14px;
+    opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; white-space: nowrap; }
+  .toast.show { opacity: 1; }
+
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: flex-end; justify-content: center; z-index: 40; }
+  .overlay.hidden { display: none; }
+  .picker { background: var(--panel); border: 1px solid var(--line); border-radius: 16px 16px 0 0; width: 100%; max-width: 560px;
+    padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 12px; }
+  .picker h3 { margin: 0; font-size: 16px; }
+  .picker .sub { color: var(--muted); font-size: 13px; margin-top: -6px; }
+  .cgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .cbtn { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 4px; color: var(--text); cursor: pointer; font-family: inherit; }
+  .cbtn b { display: block; font-size: 17px; }
+  .cbtn i { font-style: normal; font-size: 11px; color: var(--muted); }
+  .cbtn.best { border-color: var(--good); }
+  .cbtn .fit { display: block; font-size: 10px; color: var(--good); letter-spacing: 1px; min-height: 12px; }
+  .prow { display: flex; gap: 6px; }
+  .prow input { flex: 1; min-width: 0; }
+
+  @media print {
+    body { background: #fff; color: #000; }
+    .wrap > *:not(#viewSheet), #viewSheet .noprint, .toast, .overlay { display: none !important; }
+    .card { background: #fff; border: 0; padding: 0; }
+    .u .c { color: #000; } .u .n { color: #555; } .sheet-view .sub { color: #444; } .sheet-view .sh { color: #000; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Song<span>tool</span></h1>
+    <div class="settings">
+      <div class="seg" id="segName" title="Notenschreibweise">
+        <button data-v="de">H</button><button data-v="en">B</button>
+      </div>
+      <div class="seg" id="segAcc" title="Vorzeichen">
+        <button data-v="auto" title="passend zur Tonart">Auto</button><button data-v="sharp">♯</button><button data-v="flat">♭</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="songbar">
+    <select id="songSel"></select>
+    <button class="btn sm" id="newSong">＋ Neuer Song</button>
+  </div>
+
+  <div class="tabs">
+    <button data-tab="write" class="on">✎ Schreiben</button>
+    <button data-tab="sheet">♫ Chordsheet</button>
+  </div>
+
+  <!-- ================= SCHREIBEN ================= -->
+  <div id="viewWrite" style="display:flex;flex-direction:column;gap:12px">
+    <section class="card live">
+      <div class="note idle" id="note">–</div>
+      <div class="meta" id="meta">Tippe auf «Start» und sing einen Ton</div>
+      <div class="meter">
+        <div class="scale"></div><div class="zone"></div><div class="center"></div><div class="needle" id="needle"></div>
+      </div>
+      <div class="meter-labels"><span>−50 ct</span><span>zu tief · zu hoch</span><span>+50 ct</span></div>
+      <canvas id="trace"></canvas>
+      <div class="level"><span>Mikrofon</span><div class="lvl"><div id="levelBar"></div></div></div>
+      <div class="err" id="err"></div>
+    </section>
+
+    <div class="controls">
+      <button class="btn primary big" id="startBtn">🎤 Start</button>
+      <button class="btn big" id="addBtn" disabled>＋ Notieren</button>
+      <div class="target" id="target"></div>
+    </div>
+    <div class="controls" style="gap:16px">
+      <label class="toggle"><input type="checkbox" id="smooth"> Ton glätten</label>
+      <label class="toggle"><input type="checkbox" id="autoAdd"> Gehaltene Töne automatisch notieren</label>
+    </div>
+
+    <section class="card">
+      <div class="songhead">
+        <input type="text" class="title" id="title" placeholder="Songtitel">
+        <div class="row">
+          Tonart <select id="keySel"></select>
+          <span class="tp">Transponieren <button class="btn sm" data-tp="-1">−</button><button class="btn sm" data-tp="1">＋</button></span>
+          Sprache <select id="langSel"><option value="de">Deutsch</option><option value="en">Englisch</option></select>
+        </div>
+        <div class="row" id="keyInfo" style="font-size:12px"></div>
+      </div>
+      <div class="secs" id="secs"></div>
+      <div class="addsec">
+        <button class="btn sm" data-add="Verse">＋ Verse</button>
+        <button class="btn sm" data-add="Pre-Chorus">＋ Pre-Chorus</button>
+        <button class="btn sm" data-add="Chorus">＋ Chorus</button>
+        <button class="btn sm" data-add="Bridge">＋ Bridge</button>
+        <button class="btn sm" data-add="Intro">＋ Intro</button>
+        <button class="btn sm" data-add="Outro">＋ Outro</button>
+      </div>
+      <div class="controls" style="margin-top:12px"><button class="btn" id="suggestAll">✨ Akkorde für den ganzen Song vorschlagen</button></div>
+      <p class="hint">Schreib den Text einfach ins Feld. Die Silben trennt die App selbst. Falls eine Trennung nicht stimmt, trenn das Wort mit Bindestrich (<i>Au-gen-blick</i>), oder setz einen Bindestrich ans Ende, damit es nicht getrennt wird (<i>time-</i>).<br>
+      Die Zeile mit dem gelben Balken ist die, in die notiert wird. Klick in eine Textzeile oder tippe sie unten an, um sie zu wählen. Tippst du auf eine Silbe, kannst du dort einen Akkord setzen.</p>
+    </section>
+  </div>
+
+  <!-- ================= CHORDSHEET ================= -->
+  <div id="viewSheet" style="display:none;flex-direction:column;gap:12px">
+    <div class="controls noprint">
+      <span class="tp" style="color:var(--muted);font-size:14px">Transponieren <button class="btn sm" data-tp="-1">−</button><button class="btn sm" data-tp="1">＋</button></span>
+      <label class="toggle"><input type="checkbox" id="showNotes"> Noten anzeigen</label>
+    </div>
+    <section class="card sheet-view" id="sheetCard"></section>
+    <div class="controls noprint">
+      <button class="btn" id="copySheet">Als Text kopieren</button>
+      <button class="btn" id="printSheet">Drucken / PDF</button>
+    </div>
+    <section class="card noprint">
+      <div style="font-size:14px;font-weight:600;margin-bottom:10px">Song-Verwaltung</div>
+      <div class="controls" style="justify-content:flex-start">
+        <button class="btn sm" id="exportBtn">Alle Songs exportieren</button>
+        <button class="btn sm" id="importBtn">Importieren</button>
+        <button class="btn sm" id="delSong" style="color:var(--warn)">Diesen Song löschen</button>
+        <input type="file" id="importFile" accept=".json,application/json" hidden>
+      </div>
+      <p class="hint">Die Songs sind in diesem Browser gespeichert. Mit Export/Import kannst du sie sichern oder auf ein anderes Gerät bringen.</p>
+    </section>
+  </div>
+</div>
+
+<div class="overlay hidden" id="overlay">
+  <div class="picker">
+    <h3 id="pTitle">Akkord</h3>
+    <div class="sub" id="pSub"></div>
+    <div class="cgrid" id="pGrid"></div>
+    <div class="prow"><input type="text" id="pCustom" placeholder="Eigener Akkord, z.B. Fmaj7, Dsus4, G/H"><button class="btn" id="pCustomOk">Setzen</button></div>
+    <div class="prow"><button class="btn" id="pRemove" style="flex:1">Akkord entfernen</button><button class="btn" id="pCancel" style="flex:1">Abbrechen</button></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/*SYL*/
+(() => {
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+
+  // =============== Speicher ===============
+  const load = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } };
+  const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+  const settings = Object.assign({ naming: "de", acc: "auto", auto: false, smooth: true, showNotes: true }, load("st.settings", {}));
+  const saveSettings = () => save("st.settings", settings);
+
+  const uid = () => Math.random().toString(36).slice(2, 10);
+  const newLine = (text = "") => ({ text, notes: [], chords: {} });
+  const newSection = (type) => ({ id: uid(), type, lines: [newLine()] });
+  const newSong = (title) => ({ id: uid(), title: title || "Neuer Song", key: "auto", lang: "de", sections: [newSection("Verse")], active: { s: 0, l: 0 } });
+
+  function migrate(s) {
+    if (!s.sections) { s.sections = [{ id: uid(), type: "Verse", lines: s.lines?.length ? s.lines : [newLine()] }]; s.active = { s: 0, l: typeof s.active === "number" ? s.active : 0 }; delete s.lines; }
+    s.lang = s.lang || "de"; s.key = s.key || "auto";
+    if (!s.active || typeof s.active !== "object") s.active = { s: 0, l: 0 };
+    s.sections.forEach(sec => { if (!sec.lines.length) sec.lines.push(newLine()); sec.lines.forEach(l => { l.chords = l.chords || {}; l.notes = l.notes || []; l.text = l.text || ""; }); });
+    if (!s.sections.length) s.sections.push(newSection("Verse"));
+    return s;
+  }
+  let songs = load("st.songs", null);
+  if (!Array.isArray(songs) || !songs.length) {
+    songs = [newSong("Mein erster Song")];
+    const pad = load("st.pad", []);
+    if (pad.length) { const lines = [newLine()]; pad.forEach(p => p.sep ? lines.push(newLine()) : lines[lines.length - 1].notes.push(p.m)); songs[0].sections[0].lines = lines; }
+  }
+  songs.forEach(migrate);
+  let curId = load("st.cur", songs[0].id);
+  if (!songs.find(s => s.id === curId)) curId = songs[0].id;
+  const song = () => songs.find(s => s.id === curId);
+  let saveT; const persist = () => { clearTimeout(saveT); saveT = setTimeout(() => { save("st.songs", songs); save("st.cur", curId); }, 150); };
+  const allLines = s => s.sections.flatMap(sec => sec.lines);
+  function clampActive(s) {
+    s.active.s = Math.max(0, Math.min(s.active.s, s.sections.length - 1));
+    s.active.l = Math.max(0, Math.min(s.active.l, s.sections[s.active.s].lines.length - 1));
+  }
+
+  // =============== Musiktheorie ===============
+  const SHARP = ["C","C♯","D","D♯","E","F","F♯","G","G♯","A","A♯","B"];
+  const FLAT  = ["C","D♭","D","E♭","E","F","G♭","G","A♭","A","B♭","B"];
+  const FLAT_MAJ = new Set([5,10,3,8,1,6]), FLAT_MIN = new Set([2,7,0,5,10,3]);
+  const keyIsFlat = k => !!k && (k.mode === "maj" ? FLAT_MAJ.has(k.t) : FLAT_MIN.has(k.t));
+  function pcName(pc, fl) {
+    pc = ((pc % 12) + 12) % 12;
+    let n = (fl ? FLAT : SHARP)[pc];
+    if (settings.naming === "de") { if (n === "B") n = "H"; else if (n === "B♭") n = "B"; }
+    return n;
+  }
+  let flats = false;
+  const noteName = m => pcName(m, flats);
+  const octave = m => Math.floor(m / 12) - 1;
+  const midiToFreq = m => 440 * Math.pow(2, (m - 69) / 12);
+
+  const PMAJ = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
+  const PMIN = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
+  function corr(a, b) {
+    const ma = a.reduce((s, x) => s + x, 0) / 12, mb = b.reduce((s, x) => s + x, 0) / 12;
+    let n = 0, da = 0, db = 0;
+    for (let i = 0; i < 12; i++) { n += (a[i] - ma) * (b[i] - mb); da += (a[i] - ma) ** 2; db += (b[i] - mb) ** 2; }
+    return da && db ? n / Math.sqrt(da * db) : 0;
+  }
+  function detectKeys(s) {
+    const h = new Array(12).fill(0); let count = 0;
+    allLines(s).forEach(l => l.notes.forEach((m, i) => { h[((m % 12) + 12) % 12] += i === 0 ? 1.5 : 1; count++; }));
+    if (count < 5) return { list: [], count };
+    const list = [];
+    for (let t = 0; t < 12; t++) {
+      const rot = p => h.map((_, i) => p[(i - t + 12) % 12]);
+      list.push({ t, mode: "maj", r: corr(h, rot(PMAJ)) }, { t, mode: "min", r: corr(h, rot(PMIN)) });
+    }
+    return { list: list.sort((a, b) => b.r - a.r), count };
+  }
+  const parseKey = str => { const [t, mode] = str.split(":"); return { t: +t, mode }; };
+  const effKey = s => (s.key && s.key !== "auto") ? parseKey(s.key) : (detectKeys(s).list[0] || null);
+  const DE_SHARP = ["C","Cis","D","Dis","E","F","Fis","G","Gis","A","Ais","H"];
+  const DE_FLAT  = ["C","Des","D","Es","E","F","Ges","G","As","A","B","H"];
+  function keyName(k) {
+    const n = settings.naming === "de" ? (keyIsFlat(k) ? DE_FLAT : DE_SHARP)[k.t] : pcName(k.t, keyIsFlat(k));
+    return settings.naming === "de" ? (k.mode === "maj" ? n + "-Dur" : n.toLowerCase() + "-Moll") : n + (k.mode === "maj" ? " major" : " minor");
+  }
+
+  const QUAL = { maj: [0,4,7], min: [0,3,7], dim: [0,3,6] };
+  const SUF = { maj: "", min: "m", dim: "°" };
+  const DIA_MAJ = [[0,"maj","I",1],[7,"maj","V",.9],[5,"maj","IV",.9],[9,"min","vi",.8],[2,"min","ii",.7],[4,"min","iii",.5],[11,"dim","vii°",.2]];
+  const DIA_MIN = [[0,"min","i",1],[7,"maj","V",.9],[5,"min","iv",.85],[8,"maj","VI",.85],[3,"maj","III",.8],[10,"maj","VII",.8],[7,"min","v",.6],[2,"dim","ii°",.2]];
+  const chordLabel = c => c.txt != null ? c.txt : pcName(c.r, flats) + SUF[c.q];
+  function candidates(key) {
+    if (key) return (key.mode === "maj" ? DIA_MAJ : DIA_MIN).map(([iv, q, rn, pref]) => ({ r: (key.t + iv) % 12, q, rn, pref }));
+    const out = []; for (let r = 0; r < 12; r++) out.push({ r, q: "maj", rn: "", pref: .5 }, { r, q: "min", rn: "", pref: .45 }); return out;
+  }
+  function scoreChords(notes, key) {
+    return candidates(key).map(c => {
+      let hit = 0, tot = 0;
+      notes.forEach((m, i) => { const w = i === 0 ? 2 : 1; tot += w; if (QUAL[c.q].includes(((m - c.r) % 12 + 12) % 12)) hit += w; });
+      const fit = tot ? hit / tot : 0; return { ...c, fit, score: fit + 0.15 * c.pref };
+    }).sort((a, b) => b.score - a.score);
+  }
+
+  // Eigene Akkordtexte transponieren (Grundton und Basston)
+  const NOTE_IN = { C:0, D:2, E:4, F:5, G:7, A:9, H:11 };
+  function transposeTxt(txt, n) {
+    return txt.replace(/(^|\/)([A-Ha-h])(♯|#|♭|b(?![a-z]))?/g, (all, pre, L, acc) => {
+      const U = L.toUpperCase();
+      let pc = U === "B" ? (settings.naming === "de" ? 10 : 11) : NOTE_IN[U];
+      if (acc === "♯" || acc === "#") pc++; if (acc === "♭" || acc === "b") pc--;
+      return pre + pcName(pc + n, flats);
+    });
+  }
+
+  // Text → Silben-Einheiten (mit automatischer Trennung), Noten zuordnen
+  function units(line, lang) {
+    const toks = [];
+    line.text.trim().split(/\s+/).filter(Boolean).forEach(w => {
+      const parts = w.includes("-") ? w.split("-").filter(Boolean) : sylSplit(w, lang);
+      parts.forEach((p, i) => toks.push({ t: p, end: i === parts.length - 1 }));
+    });
+    if (!toks.length) return line.notes.map(m => ({ t: "", end: true, notes: [m] }));
+    return toks.map((tk, i) => ({ ...tk, notes: i < toks.length - 1 ? (line.notes[i] != null ? [line.notes[i]] : []) : line.notes.slice(i) }));
+  }
+  function spanNotes(line, us, i) {
+    const out = []; for (let j = i; j < us.length; j++) { if (j > i && line.chords[j]) break; out.push(...us[j].notes); } return out;
+  }
+
+  // =============== UI-Grundlagen ===============
+  function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 1800); }
+  function setupSeg(id, key) {
+    const seg = $(id);
+    const paint = () => seg.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === settings[key]));
+    seg.querySelectorAll("button").forEach(b => b.onclick = () => { settings[key] = b.dataset.v; saveSettings(); paint(); refreshAll(); });
+    paint();
+  }
+  setupSeg("segName", "naming"); setupSeg("segAcc", "acc");
+  $("smooth").checked = settings.smooth; $("smooth").onchange = e => { settings.smooth = e.target.checked; saveSettings(); };
+  $("autoAdd").checked = settings.auto; $("autoAdd").onchange = e => { settings.auto = e.target.checked; saveSettings(); };
+  $("showNotes").checked = settings.showNotes; $("showNotes").onchange = e => { settings.showNotes = e.target.checked; saveSettings(); renderSheet(); };
+
+  const sheetVisible = () => $("viewSheet").style.display !== "none";
+  document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+    document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x === b));
+    const w = b.dataset.tab === "write";
+    $("viewWrite").style.display = w ? "flex" : "none";
+    $("viewSheet").style.display = w ? "none" : "flex";
+    if (!w) { if (running) stop(); renderSheet(); } else { renderSections(); drawTrace(performance.now()); }
+  });
+
+  // =============== Song-Auswahl & Kopf ===============
+  function renderSongSel() {
+    const sel = $("songSel"); sel.innerHTML = "";
+    songs.forEach(s => { const o = document.createElement("option"); o.value = s.id; o.textContent = s.title || "Ohne Titel"; sel.appendChild(o); });
+    sel.value = curId;
+  }
+  $("songSel").onchange = e => { curId = e.target.value; persist(); refreshAll(); };
+  $("newSong").onclick = () => { const s = newSong(); songs.push(s); curId = s.id; persist(); refreshAll(); $("title").focus(); $("title").select(); };
+  $("title").oninput = e => { song().title = e.target.value; persist(); renderSongSel(); };
+  $("langSel").onchange = e => { song().lang = e.target.value; persist(); renderSections(); };
+
+  function refreshKey() {
+    const s = song(), det = detectKeys(s), k = effKey(s);
+    flats = settings.acc === "flat" ? true : settings.acc === "sharp" ? false : keyIsFlat(k);
+    const sel = $("keySel"), prev = s.key || "auto"; sel.innerHTML = "";
+    const auto = document.createElement("option"); auto.value = "auto";
+    auto.textContent = det.list[0] ? "Auto: " + keyName(det.list[0]) : "Auto";
+    sel.appendChild(auto);
+    for (const mode of ["maj", "min"]) for (let t = 0; t < 12; t++) {
+      const o = document.createElement("option"); o.value = t + ":" + mode; o.textContent = keyName({ t, mode }); sel.appendChild(o);
+    }
+    sel.value = prev;
+    let info = "";
+    if (prev === "auto") {
+      if (!det.list.length) info = "Tonart wird ab 5 notierten Noten erkannt.";
+      else if (det.list[1] && det.list[0].r - det.list[1].r < 0.06) info = "Könnte auch " + keyName(det.list[1]) + " sein – im Menü festlegen, falls nötig.";
+    }
+    $("keyInfo").textContent = info; $("keyInfo").style.display = info ? "" : "none";
+  }
+  $("keySel").onchange = e => { song().key = e.target.value; persist(); refreshAll(); };
+
+  // =============== Transponieren ===============
+  function transpose(n) {
+    const s = song();
+    allLines(s).forEach(l => {
+      l.notes = l.notes.map(m => m + n);
+      Object.values(l.chords).forEach(c => { if (c.txt == null) c.r = ((c.r + n) % 12 + 12) % 12; });
+    });
+    if (s.key !== "auto") { const k = parseKey(s.key); s.key = ((k.t + n) % 12 + 12) % 12 + ":" + k.mode; }
+    refreshKey();   // Vorzeichen der neuen Tonart bestimmen
+    allLines(s).forEach(l => Object.values(l.chords).forEach(c => { if (c.txt != null) c.txt = transposeTxt(c.txt, n); }));
+    persist(); refreshAll();
+    const k = effKey(s);
+    toast((n > 0 ? "+1" : "−1") + " Halbton" + (k ? " → " + keyName(k) : ""));
+  }
+  document.querySelectorAll("[data-tp]").forEach(b => b.onclick = () => transpose(+b.dataset.tp));
+
+  // =============== Songteile ===============
+  const TYPES = ["Intro", "Verse", "Pre-Chorus", "Chorus", "Bridge", "Solo", "Outro"];
+  function secLabel(s, idx) {
+    const t = s.sections[idx].type, same = s.sections.filter(x => x.type === t);
+    return same.length > 1 ? t + " " + (same.indexOf(s.sections[idx]) + 1) : t;
+  }
+  function autoGrow(ta) { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + 2 + "px"; }
+
+  // Textfeld-Zeilen mit gespeicherten Zeilen abgleichen (Noten/Akkorde bleiben bei der richtigen Zeile)
+  function syncLines(sec, texts) {
+    const old = sec.lines, min = Math.min(old.length, texts.length);
+    let pre = 0; while (pre < min && old[pre].text === texts[pre]) pre++;
+    let suf = 0; while (suf < min - pre && old[old.length - 1 - suf].text === texts[texts.length - 1 - suf]) suf++;
+    const midOld = old.slice(pre, old.length - suf), midNew = texts.slice(pre, texts.length - suf);
+    const mid = midNew.map((t, k) => k < midOld.length ? Object.assign(midOld[k], { text: t }) : newLine(t));
+    sec.lines = [...old.slice(0, pre), ...mid, ...old.slice(old.length - suf)];
+    if (!sec.lines.length) sec.lines.push(newLine());
+  }
+
+  function renderSections() {
+    const s = song(), box = $("secs"); box.innerHTML = ""; clampActive(s);
+    s.sections.forEach((sec, si) => {
+      const el = document.createElement("div"); el.className = "sec"; el.dataset.s = si;
+      const opts = TYPES.map(t => `<option${t === sec.type ? " selected" : ""}>${t}</option>`).join("");
+      const lbl = secLabel(s, si), num = lbl !== sec.type ? lbl.slice(sec.type.length) : "";
+      el.innerHTML = `<div class="sec-head"><select>${opts}</select><span class="num">${num}</span>
+          <span class="acts"><button class="btn sm ghost" data-a="sug" title="Akkorde vorschlagen">✨</button>
+          <button class="btn sm ghost" data-a="dup" title="Duplizieren">⧉</button>
+          <button class="btn sm ghost" data-a="up" title="Nach oben">↑</button>
+          <button class="btn sm ghost" data-a="del" title="Löschen">✕</button></span></div>
+        <div class="sec-body"><textarea rows="2" placeholder="Text für ${esc(sec.type)} – eine Liedzeile pro Zeile" spellcheck="false"></textarea><div class="pv"></div></div>`;
+      el.querySelector("select").onchange = e => { sec.type = e.target.value; persist(); renderSections(); };
+      const ta = el.querySelector("textarea");
+      ta.value = sec.lines.map(l => l.text).join("\n");
+      const caretLine = () => ta.value.slice(0, ta.selectionStart).split("\n").length - 1;
+      ta.oninput = () => { syncLines(sec, ta.value.split("\n")); autoGrow(ta); setActive(si, caretLine(), true); persist(); renderPreview(si); };
+      const follow = () => setActive(si, caretLine());
+      ta.onclick = follow; ta.onkeyup = e => { if (e.key.startsWith("Arrow") || e.key === "Enter") follow(); }; ta.onfocus = () => setTimeout(follow, 0);
+      el.querySelector(".acts").onclick = e => {
+        const a = e.target.dataset.a; if (!a) return;
+        if (a === "sug") { let n = 0; sec.lines.forEach((_, li) => { if (suggestLine(si, li)) n++; }); renderPreview(si); toast(n ? "Akkorde vorgeschlagen" : "Dieser Teil hat noch keine Noten"); }
+        if (a === "dup") { const c = JSON.parse(JSON.stringify(sec)); c.id = uid(); s.sections.splice(si + 1, 0, c); persist(); renderSections(); }
+        if (a === "up" && si > 0) { [s.sections[si - 1], s.sections[si]] = [s.sections[si], s.sections[si - 1]]; if (s.active.s === si) s.active.s--; else if (s.active.s === si - 1) s.active.s++; persist(); renderSections(); }
+        if (a === "del") {
+          const b = e.target, hasContent = sec.lines.some(l => l.text || l.notes.length);
+          if (hasContent && !b.dataset.confirm) { b.dataset.confirm = 1; b.textContent = "Löschen?"; setTimeout(() => { if (b.isConnected) { b.textContent = "✕"; delete b.dataset.confirm; } }, 2500); return; }
+          s.sections.splice(si, 1); if (!s.sections.length) s.sections.push(newSection("Verse"));
+          persist(); refreshAll();
+        }
+      };
+      box.appendChild(el);
+      autoGrow(ta); renderPreview(si);
+    });
+    updateTarget();
+    requestAnimationFrame(() => box.querySelectorAll("textarea").forEach(autoGrow));
+  }
+
+  function setActive(si, li, silent) {
+    const s = song(), a = s.active;
+    if (a.s === si && a.l === li) return;
+    const prevS = a.s; a.s = si; a.l = li; clampActive(s); persist();
+    if (!silent) { renderPreview(si); if (prevS !== si) renderPreview(prevS); }
+    else if (prevS !== si) renderPreview(prevS);
+    updateTarget();
+  }
+  function updateTarget() {
+    const s = song(); clampActive(s);
+    $("target").innerHTML = "Notiert in <b>" + esc(secLabel(s, s.active.s)) + ", Zeile " + (s.active.l + 1) + "</b>";
+  }
+
+  function lsHTML(line, lang, editable, joined) {
+    const us = units(line, lang);
+    return us.map((u, i) => {
+      const c = line.chords[i];
+      const chord = c ? chordLabel(c) : (editable ? "＋" : "");
+      const notes = u.notes.map(m => noteName(m) + octave(m)).join(" ");
+      const syl = u.t ? u.t + (u.end || joined ? "" : "-") : "·";
+      return `<span class="u${u.end ? " we" : ""}" data-u="${i}"><span class="c${c ? "" : " add"}">${esc(chord)}</span><span class="s">${esc(syl)}</span><span class="n">${notes}</span></span>`;
+    }).join("");
+  }
+
+  function renderPreview(si) {
+    const s = song(), sec = s.sections[si];
+    const el = document.querySelector(`.sec[data-s="${si}"] .pv`); if (!el || !sec) return;
+    el.innerHTML = "";
+    sec.lines.forEach((line, li) => {
+      const active = s.active.s === si && s.active.l === li;
+      if (!line.text.trim() && !line.notes.length && !active) return;
+      const pl = document.createElement("div"); pl.className = "pl" + (active ? " active" : "");
+      const html = lsHTML(line, s.lang, true);
+      pl.innerHTML = `<div class="ls">${html || '<span class="empty">Zeile ' + (li + 1) + ' – noch leer</span>'}</div>`;
+      pl.onclick = () => setActive(si, li);
+      pl.querySelectorAll(".u").forEach(u => u.onclick = e => { e.stopPropagation(); setActive(si, li); openPicker(si, li, +u.dataset.u); });
+      el.appendChild(pl);
+      if (active) {
+        const st = document.createElement("div"); st.className = "nstrip";
+        if (!line.notes.length) st.innerHTML = '<span class="empty">Noch keine Noten in dieser Zeile – sing und tippe auf «Notieren».</span>';
+        line.notes.forEach((m, j) => {
+          const c = document.createElement("span"); c.className = "chip";
+          c.innerHTML = noteName(m) + "<small>" + octave(m) + '</small><span class="x">✕</span>';
+          c.onclick = e => {
+            if (e.target.classList.contains("x")) { line.notes.splice(j, 1); persist(); afterNotesChanged(si); return; }
+            playTone(m, .6); c.classList.add("playing"); setTimeout(() => c.classList.remove("playing"), 600);
+          };
+          st.appendChild(c);
+        });
+        if (line.notes.length) {
+          const p = document.createElement("button"); p.className = "btn sm ghost"; p.textContent = "▶"; p.title = "Zeile abspielen";
+          p.onclick = () => playMelody(line.notes); st.appendChild(p);
+        }
+        el.appendChild(st);
+      }
+    });
+  }
+  function afterNotesChanged(si) {
+    const before = flats; refreshKey();
+    if (before !== flats) renderSections(); else renderPreview(si);
+  }
+  function refreshAll() {
+    const s = song();
+    $("title").value = s.title; $("langSel").value = s.lang;
+    renderSongSel(); refreshKey(); renderSections();
+    if (sheetVisible()) renderSheet();
+    if (!running) drawTrace(performance.now());
+  }
+
+  document.querySelectorAll("[data-add]").forEach(b => b.onclick = () => {
+    const s = song(); s.sections.push(newSection(b.dataset.add));
+    s.active = { s: s.sections.length - 1, l: 0 }; persist(); renderSections();
+    const tas = document.querySelectorAll(".sec textarea"); tas[tas.length - 1]?.focus();
+  });
+
+  // =============== Akkorde ===============
+  function suggestLine(si, li) {
+    const s = song(), line = s.sections[si].lines[li], key = effKey(s), us = units(line, s.lang);
+    if (!line.notes.length) return false;
+    const pos = [0]; if (us.length >= 4) pos.push(Math.ceil(us.length / 2));
+    line.chords = {}; let prev = null;
+    pos.forEach((p, k) => {
+      const notes = us.slice(p, pos[k + 1] ?? us.length).flatMap(u => u.notes);
+      if (!notes.length) return;
+      const best = scoreChords(notes, key)[0], lbl = best.r + best.q;
+      if (lbl !== prev) line.chords[p] = { r: best.r, q: best.q };
+      prev = lbl;
+    });
+    persist(); return true;
+  }
+  $("suggestAll").onclick = () => {
+    const s = song(); let n = 0;
+    s.sections.forEach((sec, si) => sec.lines.forEach((_, li) => { if (suggestLine(si, li)) n++; }));
+    renderSections();
+    const k = effKey(s);
+    toast(n ? n + " Zeile(n)" + (k ? " in " + keyName(k) : "") : "Noch keine Noten vorhanden");
+  };
+
+  let pick = null;
+  function openPicker(si, li, ui) {
+    const s = song(), line = s.sections[si].lines[li], us = units(line, s.lang), key = effKey(s);
+    pick = { si, li, ui };
+    const notes = spanNotes(line, us, ui), list = scoreChords(notes, key).slice(0, key ? 8 : 12);
+    $("pTitle").textContent = "Akkord für «" + (us[ui].t || "Note " + (ui + 1)) + "»";
+    $("pSub").textContent = (key ? keyName(key) : "Tonart noch unbekannt") + (notes.length ? " · Melodie hier: " + notes.map(noteName).join(" ") : "");
+    const grid = $("pGrid"); grid.innerHTML = "";
+    list.forEach((c, k) => {
+      const b = document.createElement("button"); b.className = "cbtn" + (k === 0 && notes.length ? " best" : "");
+      b.innerHTML = `<b>${esc(pcName(c.r, flats) + SUF[c.q])}</b><i>${c.rn || "&nbsp;"}</i><span class="fit">${notes.length ? "●".repeat(Math.round(c.fit * 3)) : ""}</span>`;
+      b.onclick = () => { line.chords[ui] = { r: c.r, q: c.q }; playChord(c); closePicker(true); };
+      grid.appendChild(b);
+    });
+    $("pCustom").value = line.chords[ui]?.txt || "";
+    $("overlay").classList.remove("hidden");
+  }
+  function closePicker(changed) {
+    $("overlay").classList.add("hidden");
+    if (changed && pick) { persist(); renderPreview(pick.si); if (sheetVisible()) renderSheet(); }
+    pick = null;
+  }
+  $("pCancel").onclick = () => closePicker(false);
+  $("overlay").onclick = e => { if (e.target.id === "overlay") closePicker(false); };
+  $("pRemove").onclick = () => { delete song().sections[pick.si].lines[pick.li].chords[pick.ui]; closePicker(true); };
+  $("pCustomOk").onclick = () => { const v = $("pCustom").value.trim(); if (!v) return; song().sections[pick.si].lines[pick.li].chords[pick.ui] = { txt: v }; closePicker(true); };
+  $("pCustom").onkeydown = e => { if (e.key === "Enter") $("pCustomOk").click(); };
+
+  // =============== Chordsheet ===============
+  function renderSheet() {
+    const s = song(), k = effKey(s), card = $("sheetCard");
+    card.classList.toggle("hide-notes", !settings.showNotes);
+    let body = "";
+    s.sections.forEach((sec, si) => {
+      const lines = sec.lines.filter(l => l.text.trim() || l.notes.length);
+      if (!lines.length) return;
+      body += `<div class="sh">[${esc(secLabel(s, si))}]</div>` + lines.map(l => `<div class="ls${Object.keys(l.chords).length ? "" : " noch"}">${lsHTML(l, s.lang, false, !settings.showNotes)}</div>`).join("");
+    });
+    card.innerHTML = `<h2>${esc(s.title || "Ohne Titel")}</h2><div class="sub">${k ? "Tonart: " + keyName(k) : "Tonart: –"}</div>` +
+      (body || '<p class="hint">Noch leer. Schreib im Tab «Schreiben» Text und Noten.</p>');
+  }
+  function lineText(line, lang) {
+    const us = units(line, lang); let lyr = "", ch = "";
+    us.forEach((u, i) => {
+      const col = lyr.length;
+      if (line.chords[i]) { const lbl = chordLabel(line.chords[i]); if (ch.length > col) ch += " "; ch = ch.padEnd(col) + lbl; }
+      lyr += (u.t || "") + (u.end ? " " : "");
+      if (u.end && ch.length >= lyr.length) lyr = lyr.padEnd(ch.length + 1);
+    });
+    return (ch.trim() ? ch.trimEnd() + "\n" : "") + lyr.trimEnd() + "\n";
+  }
+  function sheetText() {
+    const s = song(), k = effKey(s);
+    let out = (s.title || "Ohne Titel") + "\n" + (k ? "Tonart: " + keyName(k) + "\n" : "");
+    s.sections.forEach((sec, si) => {
+      const lines = sec.lines.filter(l => l.text.trim());
+      if (!lines.length) return;
+      out += "\n[" + secLabel(s, si) + "]\n" + lines.map(l => lineText(l, s.lang)).join("");
+    });
+    return out;
+  }
+  $("copySheet").onclick = async () => { try { await navigator.clipboard.writeText(sheetText()); toast("Chordsheet kopiert"); } catch { toast("Kopieren nicht möglich"); } };
+  $("printSheet").onclick = () => window.print();
+
+  $("exportBtn").onclick = () => {
+    const blob = new Blob([JSON.stringify({ app: "songtool", version: 2, songs }, null, 2)], { type: "application/json" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+    a.download = "songtool-" + new Date().toISOString().slice(0, 10) + ".json"; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  };
+  $("importBtn").onclick = () => $("importFile").click();
+  $("importFile").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try {
+      const data = JSON.parse(await f.text()); let added = 0;
+      (data.songs || []).filter(s => s && (Array.isArray(s.sections) || Array.isArray(s.lines))).forEach(s => {
+        if (songs.find(x => x.id === s.id)) s.id = uid(); songs.push(migrate(s)); added++;
+      });
+      persist(); refreshAll(); toast(added + " Song(s) importiert");
+    } catch { toast("Datei konnte nicht gelesen werden"); }
+    e.target.value = "";
+  };
+  $("delSong").onclick = e => {
+    const b = e.target;
+    if (!b.dataset.confirm) { b.dataset.confirm = 1; b.textContent = "Wirklich löschen?"; setTimeout(() => { b.textContent = "Diesen Song löschen"; delete b.dataset.confirm; }, 3000); return; }
+    songs = songs.filter(s => s.id !== curId); if (!songs.length) songs.push(newSong());
+    curId = songs[0].id; persist(); refreshAll(); toast("Song gelöscht");
+    b.textContent = "Diesen Song löschen"; delete b.dataset.confirm;
+  };
+
+  /*AUDIO*/
+  function addNote(midi, auto) {
+    const s = song(); clampActive(s);
+    const { s: si, l: li } = s.active;
+    s.sections[si].lines[li].notes.push(midi); persist(); afterNotesChanged(si);
+    if (!auto) toast(noteName(midi) + octave(midi) + " notiert");
+  }
+  $("addBtn").onclick = () => { if (current) addNote(current.midi, false); };
+
+  /*PLAY*/
+  refreshAll();
+  drawTrace(performance.now());
+  window.addEventListener("resize", () => { if (!running) drawTrace(performance.now()); });
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
+})();
+</script>
+</body>
+</html>
