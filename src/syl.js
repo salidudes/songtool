@@ -1,7 +1,7 @@
 // Silbentrennung (Heuristik für Deutsch/Englisch) – wird in index.html eingebettet
 function sylSplit(word, lang) {
   const VOW = "aeiouyäöüàáâéèêíìîóòôúùû";
-  const DIPH_DE = ["ai","au","ei","eu","äu","ie","aa","ee","oo","ey","ay"];
+  const DIPH_DE = ["ai","au","ei","eu","äu","ie","aa","ee","oo","ey","ay","ou"];
   const DIPH_EN = ["ai","au","ay","ea","ee","ei","ey","ie","oa","oe","oi","oo","ou","ow","oy","ue","ui","ew","aw"];
   const diph = lang === "en" ? DIPH_EN : DIPH_DE;
   const lw = word.toLowerCase();

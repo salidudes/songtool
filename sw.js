@@ -1,5 +1,5 @@
 // Offline-Cache: App funktioniert auch ohne Internet
-const CACHE = "songtool-v3";
+const CACHE = "songtool-v4";
 const FILES = ["./", "index.html", "manifest.json", "icon.svg", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", e => {
