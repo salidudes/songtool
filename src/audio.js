@@ -62,10 +62,11 @@
   let current = null;
   const levelBar = $("levelBar"), noteEl = $("note"), metaEl = $("meta"), needle = $("needle");
 
-  async function start() {
-    $("err").textContent = "";
+  let visualOnly = false;   // true während einer Memo-Aufnahme: nur anzeigen, nicht mitschreiben
+  async function start(useStream, vis) {
+    $("err").textContent = ""; visualOnly = !!vis;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      stream = useStream || await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
     } catch (e) {
       $("err").textContent = "Kein Mikrofonzugriff. Bitte im Browser erlauben und erneut versuchen. (" + (e.name || e) + ")"; return;
     }
@@ -77,7 +78,8 @@
     data = new Float32Array(analyser.fftSize);
     src.connect(analyser);
     running = true; seg = null; cand = [];
-    $("startBtn").textContent = "■ Stopp"; $("startBtn").classList.remove("primary");
+    $("startBtn").textContent = vis ? "■ Memo stoppen" : "■ Stopp"; $("startBtn").classList.remove("primary"); $("startBtn").classList.toggle("recon", !!vis);
+    dockState();
     metaEl.textContent = "Ich höre zu …";
     try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
     loop();
@@ -86,10 +88,11 @@
     running = false; cancelAnimationFrame(raf);
     stream?.getTracks().forEach(t => t.stop());
     try { wakeLock?.release(); } catch {}
-    $("startBtn").textContent = "🎤 Start"; $("startBtn").classList.add("primary");
-    showIdle("Pausiert"); levelBar.style.width = "0";
+    $("startBtn").textContent = "🎤 Start"; $("startBtn").classList.add("primary"); $("startBtn").classList.remove("recon");
+    showIdle("Pausiert"); levelBar.style.width = "0"; visualOnly = false;
+    dockState();
   }
-  $("startBtn").onclick = () => running ? stop() : start();
+  $("startBtn").onclick = () => { if (recState) { recState.rec.stop(); return; } running ? stop() : start(); };
   document.addEventListener("visibilitychange", () => { if (document.hidden && running) stop(); });
 
   function loop() {
@@ -116,7 +119,7 @@
       current = { midi, cents: Math.round((mShow - midi) * 100), f: midiToFreq(mShow) };
       trace.push({ t: now, m: mRaw, s: seg ? seg.center : null, id: seg ? seg.id : 0 });
       showNote(current, held > 250);
-      if (settings.auto && seg && !seg.added && now - seg.start > 350) { seg.added = true; addNote(Math.round(seg.center), true); }
+      if (settings.auto && !visualOnly && seg && !seg.added && now - seg.start > 350) { seg.added = true; addNote(Math.round(seg.center), true); }
     } else {
       hist.length = 0;
       trace.push({ t: now, m: null });
@@ -151,13 +154,13 @@
     g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
     const vals = trace.filter(p => p.m != null).map(p => p.m);
     if (vals.length) { const tg = (Math.min(...vals) + Math.max(...vals)) / 2; viewCenter += (tg - viewCenter) * 0.08; }
-    const range = 14, L = 34, y = m => h / 2 - (m - viewCenter) / range * h, x = t => L + (w - L) * (1 - (now - t) / 6000);
+    const range = h < 100 ? 9 : 14, L = 34, step = h / range, y = m => h / 2 - (m - viewCenter) / range * h, x = t => L + (w - L) * (1 - (now - t) / 6000);
     g.font = "10px sans-serif"; g.textBaseline = "middle";
     for (let m = Math.floor(viewCenter - range / 2); m <= Math.ceil(viewCenter + range / 2); m++) {
       const yy = y(m), pc = ((m % 12) + 12) % 12, black = [1,3,6,8,10].includes(pc);
       g.strokeStyle = pc === 0 ? "#3a4050" : black ? "#1b1e25" : "#252933"; g.lineWidth = 1;
       g.beginPath(); g.moveTo(L, yy); g.lineTo(w, yy); g.stroke();
-      if (!black) { g.fillStyle = "#5c6372"; g.fillText(noteName(m) + octave(m), 4, yy); }
+      if (!black && (step >= 9 || pc === 0 || pc === 7)) { g.fillStyle = "#5c6372"; g.fillText(noteName(m) + octave(m), 4, yy); }
     }
     // geglättete Töne als Balken
     if (settings.smooth) {
