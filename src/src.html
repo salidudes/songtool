@@ -213,7 +213,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v11</small></h1>
+    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v12</small></h1>
     <div class="settings">
       <button id="syncDot" title="Synchronisation">☁ aus</button>
       <button class="btn sm" id="settingsBtn" title="Einstellungen">⚙</button>
@@ -1079,8 +1079,10 @@
   function addNote(midi, auto) {
     const s = song(); clampActive(s);
     const { s: si, l: li } = s.active;
-    s.sections[si].lines[li].notes.push(midi); persist(); afterNotesChanged(si);
+    const line = s.sections[si].lines[li];
+    line.notes.push(midi); persist(); afterNotesChanged(si);
     if (!auto) toast(noteName(midi) + octave(midi) + " notiert");
+    return { line, idx: line.notes.length - 1, si };
   }
 
 
@@ -1103,7 +1105,7 @@
     const fct = Math.max(1, Math.floor(sr0 / 16000)), sr = sr0 / fct, n = Math.floor(len / fct), x = new Float32Array(n);
     const chans = []; for (let c = 0; c < ch; c++) chans.push(audio.getChannelData(c));
     for (let i = 0; i < n; i++) { let a = 0; for (let c = 0; c < ch; c++) { const d = chans[c]; for (let k = 0; k < fct; k++) a += d[i * fct + k]; } x[i] = a / (fct * ch); }
-    const N = 1024, W = N / 2, hop = Math.round(sr * .01), total = Math.max(0, Math.floor((n - N) / hop));
+    const N = 768, W = N / 2, hop = Math.round(sr * .01), total = Math.max(0, Math.floor((n - N) / hop));
     const tauMin = Math.floor(sr / 1100), tauMax = Math.min(W - 1, Math.floor(sr / 65)), d = new Float32Array(W);
     const fr = new Array(total);
     for (let f = 0; f < total; f++) { const o = f * hop; let r = 0; for (let i = 0; i < N; i++) { const v = x[o + i]; r += v * v; } fr[f] = { t: (o + N / 2) / sr, rms: Math.sqrt(r / N), m: null }; }
@@ -1121,19 +1123,34 @@
     }
     onProg(1);
     // Glättung zu Tönen
-    const TOL = .7, SW = .09, SIL = .05, notes = [];
+    const TOL = .7, SW = .08, SIL = .05, notes = [];
     let seg = null, cand = [], last = -1, inTol = 0;
-    const close = end => { if (seg && end - seg.start >= .08) notes.push({ m: Math.round(seg.c), c: seg.c, start: seg.start, end }); seg = null; cand = []; };
+    // Gleiter-Filter: kurzer «Ton», dessen Tonhöhe während er klingt deutlich wandert, ist ein Übergang
+    const drift = pts => { const n = pts.length; if (n < 3) return 0; let st = 0, sm = 0; pts.forEach(p => { st += p.t; sm += p.m; }); st /= n; sm /= n;
+      let num = 0, den = 0; pts.forEach(p => { num += (p.t - st) * (p.m - sm); den += (p.t - st) ** 2; }); return den ? Math.abs(num / den) * (pts[n - 1].t - pts[0].t) : 0; };
+    const close = end => {
+      if (seg && end - seg.start >= .06) {
+        // nur die Mitte des Tons beurteilen (Ein- und Ausschwingen ausblenden)
+        const d = end - seg.start, mid = (seg.pts || []).filter(p => p.t > seg.start + d * .25 && p.t < end - d * .25), dr = drift(mid) / .5;
+        if (!(d < .25 && dr > .55) && !(d < .1 && dr > .3)) notes.push({ m: Math.round(seg.c), c: seg.c, start: seg.start, end });
+      }
+      seg = null; cand = [];
+    };
     for (const q of fr) {
       if (q.m == null) { if (seg && q.t - last > SIL) close(last + .01); continue; }
       last = q.t;
-      if (!seg) { seg = { vals: [q.m], start: q.t, c: q.m }; continue; }
-      if (Math.abs(q.m - seg.c) < TOL) { seg.vals.push(q.m); if (seg.vals.length > 80) seg.vals.shift(); seg.c = tmean(seg.vals); if (++inTol >= 2) cand = []; }
+      if (!seg) { seg = { vals: [q.m], pts: [q], start: q.t, c: q.m, peak: q.rms }; continue; }
+      // Tonwiederholung: kurzer Lautstärke-Einbruch (Konsonant) und wieder laut → neuer Ton
+      if (Math.abs(q.m - seg.c) < TOL) {
+        if (q.rms < seg.peak * .7 && q.t - seg.start > .05) seg.dip = true;
+        else if (seg.dip && q.rms > seg.peak * .88) { close(q.t); seg = { vals: [q.m], pts: [q], start: q.t, c: q.m, peak: q.rms }; continue; }
+        seg.peak = Math.max(seg.peak, q.rms);
+        seg.vals.push(q.m); seg.pts.push(q); if (seg.pts.length > 60) seg.pts.shift(); if (seg.vals.length > 80) seg.vals.shift(); seg.c = tmean(seg.vals); if (++inTol >= 2) cand = []; }
       else {
         inTol = 0; cand.push(q); cand = cand.filter(z => q.t - z.t <= .22);
         if (cand.length >= 3 && q.t - cand[0].t >= SW) {
           const rec = cand.filter(z => q.t - z.t <= .16).map(z => z.m), cm = median(rec);
-          if (median(rec.map(v => Math.abs(v - cm))) < .4) { const st = cand[0].t; close(st); seg = { vals: rec, start: st, c: tmean(rec) }; }
+          if (median(rec.map(v => Math.abs(v - cm))) < .4) { const st = cand[0].t, cp = cand.filter(z => z.t >= st); close(st); seg = { vals: rec, pts: cp, start: st, c: tmean(rec), peak: q.rms }; }
         }
       }
     }
@@ -1248,7 +1265,7 @@
         ${map ? `<select>${opts}</select>` : ""}</div><div class="nchips"></div>`;
       const chips = el.querySelector(".nchips");
       p.notes.forEach((nt, j) => {
-        const d = nt.end - nt.start, c = document.createElement("span"); c.className = "nchip" + (d < .15 ? " short" : "");
+        const d = nt.end - nt.start, c = document.createElement("span"); c.className = "nchip" + (d < .09 ? " short" : "");
         c.innerHTML = `${noteName(nt.m)}${octave(nt.m)}<small>${d.toFixed(2)}s</small><button title="Ton entfernen">✕</button>`;
         c.querySelector("button").onclick = () => { p.notes.splice(j, 1); if (!p.notes.length) M.phrases.splice(k, 1); renderMemoDlg(); };
         chips.appendChild(c);

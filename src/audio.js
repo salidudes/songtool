@@ -27,7 +27,7 @@
   // =============== Glättung: Ton-Segmente ===============
   // Solange die Stimme in der Nähe des laufenden Mittelwerts bleibt (±0.7 Halbtöne, deckt Vibrato ab),
   // wird gemittelt. Ein neuer Ton startet erst, wenn die Abweichung ~90 ms stabil anhält oder nach einer Pause.
-  const SEG_TOL = 0.7, SWITCH_MS = 90, SILENCE_MS = 140;
+  const SEG_TOL = 0.85, SWITCH_MS = 90, SILENCE_MS = 120;
   let seg = null, cand = [], lastVoice = 0, segCount = 0;
   const median = a => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
   function trimmedMean(a) {
@@ -62,7 +62,7 @@
   let current = null;
   const levelBar = $("levelBar"), noteEl = $("note"), metaEl = $("meta"), needle = $("needle");
 
-  let visualOnly = false;   // true während einer Memo-Aufnahme: nur anzeigen, nicht mitschreiben
+  let visualOnly = false, lastAuto = null;   // true während einer Memo-Aufnahme: nur anzeigen, nicht mitschreiben
   async function start(useStream, vis) {
     $("err").textContent = ""; visualOnly = !!vis;
     try {
@@ -107,6 +107,12 @@
       const mRaw = 69 + 12 * Math.log2(f / 440);
       hist.push(mRaw); if (hist.length > 5) hist.shift();
       const mMed = median(hist);
+      // Tonwiederholung live: Lautstärke-Einbruch und wieder laut auf gleicher Tonhöhe → neuer Ton
+      if (seg && Math.abs(mRaw - seg.center) < SEG_TOL) {
+        seg.peak = Math.max(seg.peak || 0, rms);
+        if (rms < seg.peak * .7 && now - seg.start > 50) seg.dip = true;
+        else if (seg.dip && rms > seg.peak * .88) newSeg([mRaw], now);
+      }
       segFeed(mRaw, now);
       let mShow, held;
       if (settings.smooth && seg) { mShow = seg.center; held = now - seg.start; }
@@ -119,7 +125,15 @@
       current = { midi, cents: Math.round((mShow - midi) * 100), f: midiToFreq(mShow) };
       trace.push({ t: now, m: mRaw, s: seg ? seg.center : null, id: seg ? seg.id : 0 });
       showNote(current, held > 250);
-      if (settings.auto && !visualOnly && seg && !seg.added && now - seg.start > 350) { seg.added = true; addNote(Math.round(seg.center), true); }
+      // notieren, sobald ein Ton kurz stabil ist (100 ms; bei grossem Sprung 200 ms gegen Oktavfehler)
+      if (settings.auto && !visualOnly && seg && !seg.added) {
+        const mm = Math.round(seg.center), jump = lastAuto == null ? 0 : Math.abs(mm - lastAuto);
+        if (now - seg.start > (jump > 12 ? 300 : jump > 9 ? 200 : 100)) { seg.added = true; seg.addedMidi = mm; lastAuto = mm; seg.ref = addNote(mm, true); }
+      } else if (seg && seg.added && seg.ref) {
+        // früh notierter Ton: korrigieren, solange er sich noch einpendelt
+        const mm = Math.round(seg.center), r = seg.ref;
+        if (mm !== seg.addedMidi && r.line.notes[r.idx] === seg.addedMidi && now - seg.start < 1500) { r.line.notes[r.idx] = mm; seg.addedMidi = mm; lastAuto = mm; persist(); afterNotesChanged(r.si); }
+      }
     } else {
       hist.length = 0;
       trace.push({ t: now, m: null });
