@@ -1,5 +1,5 @@
 // Offline-Cache: App funktioniert auch ohne Internet
-const CACHE = "songtool-v6";
+const CACHE = "songtool-v7";
 const FILES = ["./", "index.html", "manifest.json", "icon.svg", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", e => {
@@ -14,7 +14,7 @@ self.addEventListener("activate", e => {
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET") return;
   e.respondWith(
-    fetch(e.request).then(r => {
+    fetch(e.request, { cache: "no-cache" }).then(r => {
       const copy = r.clone();
       caches.open(CACHE).then(c => c.put(e.request, copy));
       return r;

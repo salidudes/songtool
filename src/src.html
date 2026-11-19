@@ -163,7 +163,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Song<span>tool</span></h1>
+    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v7</small></h1>
     <div class="settings">
       <button id="syncDot" title="Synchronisation">☁ aus</button>
       <div class="seg" id="segName" title="Notenschreibweise">
@@ -608,7 +608,7 @@
         });
         if (line.notes.length) {
           const p = document.createElement("button"); p.className = "btn sm ghost"; p.textContent = "▶"; p.title = "Zeile abspielen";
-          p.onclick = () => playMelody(line.notes); st.appendChild(p);
+          p.onclick = () => playMelody(line.notes, p); st.appendChild(p);
         }
         el.appendChild(st);
       }
@@ -996,7 +996,7 @@
   sync();
   drawTrace(performance.now());
   window.addEventListener("resize", () => { if (!running) drawTrace(performance.now()); });
-  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
 })();
 </script>
 </body>
