@@ -95,6 +95,8 @@
   .chip .x { color: var(--muted); font-weight: 400; padding: 0 3px; }
   .chip.playing { border-color: var(--accent); }
   .empty { color: var(--muted); font-size: 12px; }
+  .sec-head select { flex-shrink: 0; min-width: 0; }
+  .sec-head .here { white-space: nowrap; }
   .sec.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .sec.active .sec-head { background: rgba(240,180,41,.13); }
   .sec .here { display: none; font-size: 11px; color: var(--accent); margin-left: 4px; }
@@ -118,6 +120,8 @@
   .nchip small { color: var(--muted); font-size: 10px; } .nchip.short { border-style: dashed; color: var(--muted); }
   .nchip button { background: none; border: 0; color: var(--muted); padding: 0 3px; cursor: pointer; }
   .progress { height: 6px; background: var(--panel2); border-radius: 3px; overflow: hidden; } .progress div { height: 100%; width: 0; background: var(--accent); }
+  .addone { width: 100%; justify-content: center; margin-top: 12px; border-style: dashed; color: var(--muted); padding: 13px; }
+  .addone:hover { color: var(--text); border-color: var(--accent); }
   .addsec { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin-top: 12px; }
 
   /* Lead-Sheet-Darstellung */
@@ -181,7 +185,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v8</small></h1>
+    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v9</small></h1>
     <div class="settings">
       <button id="syncDot" title="Synchronisation">☁ aus</button>
       <div class="seg" id="segName" title="Notenschreibweise">
@@ -230,23 +234,10 @@
     <section class="card">
       <div class="songhead">
         <input type="text" class="title" id="title" placeholder="Songtitel">
-        <div class="row">
-          Tonart <select id="keySel"></select>
-          <span class="tp">Transponieren <button class="btn sm" data-tp="-1">−</button><button class="btn sm" data-tp="1">＋</button></span>
-          Sprache <select id="langSel"><option value="de">Deutsch</option><option value="en">Englisch</option></select>
-        </div>
-        <div class="row" id="keyInfo" style="font-size:12px"></div>
       </div>
       <div class="secs" id="secs"></div>
-      <div class="addsec">
-        <button class="btn sm" data-add="Verse">＋ Verse</button>
-        <button class="btn sm" data-add="Pre-Chorus">＋ Pre-Chorus</button>
-        <button class="btn sm" data-add="Chorus">＋ Chorus</button>
-        <button class="btn sm" data-add="Bridge">＋ Bridge</button>
-        <button class="btn sm" data-add="Intro">＋ Intro</button>
-        <button class="btn sm" data-add="Outro">＋ Outro</button>
-      </div>
-      <div class="controls" style="margin-top:12px"><button class="btn" id="suggestAll">✨ Akkorde vorschlagen</button><button class="btn" data-claude>🤖 An Claude senden</button></div>
+      <button class="btn addone" id="addSec" title="Neuen Teil hinzufügen">＋ Teil hinzufügen</button>
+      <div class="controls" style="margin-top:12px"><button class="btn" data-claude>🤖 An Claude senden</button></div>
       <p class="hint">Schreib den Text einfach ins Feld. Die Silben trennt die App selbst. Falls eine Trennung nicht stimmt, trenn das Wort mit Bindestrich (<i>Au-gen-blick</i>), oder setz einen Bindestrich ans Ende, damit es nicht getrennt wird (<i>time-</i>).<br>
       Die Zeile mit dem gelben Balken ist die, in die notiert wird. Klick in eine Textzeile oder tippe sie unten an, um sie zu wählen. Tippst du auf eine Silbe, kannst du dort einen Akkord setzen.</p>
     </section>
@@ -255,9 +246,11 @@
   <!-- ================= CHORDSHEET ================= -->
   <div id="viewSheet" style="display:none;flex-direction:column;gap:12px">
     <div class="controls noprint">
+      <span class="tp" style="color:var(--muted);font-size:14px">Tonart <select id="keySel"></select></span>
       <span class="tp" style="color:var(--muted);font-size:14px">Transponieren <button class="btn sm" data-tp="-1">−</button><button class="btn sm" data-tp="1">＋</button></span>
       <label class="toggle"><input type="checkbox" id="showNotes"> Noten anzeigen</label>
     </div>
+    <div class="hint" id="keyInfo" style="text-align:center;margin:0"></div>
     <section class="card sheet-view" id="sheetCard"></section>
     <div class="controls noprint">
       <button class="btn" id="copySheet">Als Text kopieren</button>
@@ -395,7 +388,7 @@ function sylSplit(word, lang) {
   const uid = () => Math.random().toString(36).slice(2, 10);
   const newLine = (text = "") => ({ text, notes: [], chords: {} });
   const newSection = (type) => ({ id: uid(), type, lines: [newLine()], memos: [] });
-  const newSong = (title) => ({ id: uid(), title: title || "Neuer Song", key: "auto", lang: "de", sections: [newSection("Verse")], active: { s: 0, l: 0 }, updatedAt: Date.now() });
+  const newSong = (title) => ({ id: uid(), title: title || "Neuer Song", key: "auto", lang: "de", sections: [newSection("Unbekannt")], active: { s: 0, l: 0 }, updatedAt: Date.now() });
 
   function migrate(s) {
     if (!s.sections) { s.sections = [{ id: uid(), type: "Verse", lines: s.lines?.length ? s.lines : [newLine()] }]; s.active = { s: 0, l: typeof s.active === "number" ? s.active : 0 }; delete s.lines; }
@@ -545,7 +538,15 @@ function sylSplit(word, lang) {
   $("songSel").onchange = e => { curId = e.target.value; persist(false); refreshAll(); };
   $("newSong").onclick = () => { const s = newSong(); songs.push(s); curId = s.id; persist(); refreshAll(); $("title").focus(); $("title").select(); };
   $("title").oninput = e => { song().title = e.target.value; persist(); renderSongSel(); };
-  $("langSel").onchange = e => { song().lang = e.target.value; persist(); renderSections(); };
+  // Sprache automatisch aus dem Text erkennen (für die Silbentrennung)
+  const DE_W = new Set("und ich du die der das nicht ist ein eine mit auf für dich mich mir dir wir sie es den dem zu im in von wie was wenn noch nur so mein dein bin bist sind hab habe nacht herz zeit immer".split(" "));
+  const EN_W = new Set("the and you i me my your we is are it in on to of for with be all love when what don't can't i'm you're oh yeah baby heart night time never always".split(" "));
+  function detectLang(s) {
+    let de = 0, en = 0;
+    s.sections.forEach(sec => sec.lines.forEach(l => l.text.toLowerCase().split(/[^a-zäöüß']+/).forEach(w => { if (!w) return; if (/[äöüß]/.test(w)) de += 2; if (DE_W.has(w)) de++; if (EN_W.has(w)) en++; })));
+    return en > de ? "en" : "de";
+  }
+  function updateLang(s) { const l = detectLang(s); if (l !== s.lang) { s.lang = l; return true; } return false; }
 
   function refreshKey() {
     const s = song(), det = detectKeys(s), k = effKey(s);
@@ -584,7 +585,7 @@ function sylSplit(word, lang) {
   document.querySelectorAll("[data-tp]").forEach(b => b.onclick = () => transpose(+b.dataset.tp));
 
   // =============== Songteile ===============
-  const TYPES = ["Intro", "Verse", "Pre-Chorus", "Chorus", "Bridge", "Solo", "Outro"];
+  const TYPES = ["Unbekannt", "Intro", "Verse", "Pre-Chorus", "Chorus", "Bridge", "Solo", "Outro"];
   function secLabel(s, idx) {
     const t = s.sections[idx].type, same = s.sections.filter(x => x.type === t);
     return same.length > 1 ? t + " " + (same.indexOf(s.sections[idx]) + 1) : t;
@@ -609,7 +610,7 @@ function sylSplit(word, lang) {
       const opts = TYPES.map(t => `<option${t === sec.type ? " selected" : ""}>${t}</option>`).join("");
       const lbl = secLabel(s, si), num = lbl !== sec.type ? lbl.slice(sec.type.length) : "";
       el.innerHTML = `<div class="sec-head"><select>${opts}</select><span class="num">${num}</span><span class="here">● hier wird notiert</span>
-          <span class="acts"><button class="btn sm ghost recbtn" data-a="rec" title="Memo aufnehmen">🎙</button><button class="btn sm ghost" data-a="sug" title="Akkorde vorschlagen">✨</button>
+          <span class="acts"><button class="btn sm ghost recbtn" data-a="rec" title="Memo aufnehmen">🎙</button>
           <button class="btn sm ghost" data-a="dup" title="Duplizieren">⧉</button>
           <button class="btn sm ghost" data-a="up" title="Nach oben">↑</button>
           <button class="btn sm ghost" data-a="del" title="Löschen">✕</button></span></div>
@@ -619,7 +620,7 @@ function sylSplit(word, lang) {
       const ta = el.querySelector("textarea");
       ta.value = sec.lines.map(l => l.text).join("\n");
       const caretLine = () => ta.value.slice(0, ta.selectionStart).split("\n").length - 1;
-      ta.oninput = () => { syncLines(sec, ta.value.split("\n")); autoGrow(ta); setActive(si, caretLine(), true); persist(); renderPreview(si); };
+      ta.oninput = () => { syncLines(sec, ta.value.split("\n")); autoGrow(ta); setActive(si, caretLine(), true); persist(); if (updateLang(s)) s.sections.forEach((_, k) => renderPreview(k)); else renderPreview(si); };
       const follow = () => setActive(si, caretLine());
       ta.onclick = follow; ta.onkeyup = e => { if (e.key.startsWith("Arrow") || e.key === "Enter") follow(); }; ta.onfocus = () => setTimeout(follow, 0);
       el.querySelector(".acts").onclick = e => {
@@ -682,7 +683,7 @@ function sylSplit(word, lang) {
       el.appendChild(pl);
       if (active) {
         const st = document.createElement("div"); st.className = "nstrip";
-        if (!line.notes.length) st.innerHTML = '<span class="empty">Noch keine Noten in dieser Zeile – sing und tippe auf «Notieren».</span>';
+        if (!line.notes.length) st.innerHTML = '<span class="empty">Noch keine Noten in dieser Zeile – tippe auf «Start» und sing; gehaltene Töne landen automatisch hier.</span>';
         line.notes.forEach((m, j) => {
           const c = document.createElement("span"); c.className = "chip";
           c.innerHTML = noteName(m) + "<small>" + octave(m) + '</small><span class="x">✕</span>';
@@ -706,14 +707,14 @@ function sylSplit(word, lang) {
   }
   function refreshAll() {
     const s = song();
-    $("title").value = s.title; $("langSel").value = s.lang;
+    $("title").value = s.title;
     renderSongSel(); refreshKey(); renderSections();
     if (sheetVisible()) renderSheet();
     if (!running) drawTrace(performance.now());
   }
 
-  document.querySelectorAll("[data-add]").forEach(b => b.onclick = () => {
-    const s = song(); s.sections.push(newSection(b.dataset.add));
+  $("addSec").onclick = (() => {
+    const s = song(); s.sections.push(newSection("Unbekannt"));
     s.active = { s: s.sections.length - 1, l: 0 }; persist(); renderSections();
     const tas = document.querySelectorAll(".sec textarea"); tas[tas.length - 1]?.focus();
   });
@@ -733,13 +734,6 @@ function sylSplit(word, lang) {
     });
     persist(); return true;
   }
-  $("suggestAll").onclick = () => {
-    const s = song(); let n = 0;
-    s.sections.forEach((sec, si) => sec.lines.forEach((_, li) => { if (suggestLine(si, li)) n++; }));
-    renderSections();
-    const k = effKey(s);
-    toast(n ? n + " Zeile(n)" + (k ? " in " + keyName(k) : "") : "Noch keine Noten vorhanden");
-  };
 
   let pick = null;
   function openPicker(si, li, ui) {
