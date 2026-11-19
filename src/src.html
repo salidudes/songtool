@@ -147,6 +147,14 @@
   .sheet-view .ls.noch .u .c { display: none; }
   .sheet-view.hide-notes .u { padding: 0; min-width: 0; }
 
+  .menuwrap { position: relative; }
+  .menu { position: absolute; right: 0; top: calc(100% + 4px); background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 4px; z-index: 30; min-width: 200px; box-shadow: 0 8px 24px rgba(0,0,0,.4); display: flex; flex-direction: column; }
+  .menu[hidden] { display: none; }
+  .menu button { background: none; border: 0; color: var(--text); text-align: left; padding: 10px 12px; border-radius: 7px; font-size: 14px; cursor: pointer; font-family: inherit; }
+  .menu button:hover { background: var(--panel); }
+  .menu button.danger { color: var(--warn); }
+  .setrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 14px; color: var(--muted); margin-top: 8px; }
+  .setrow .seg button { padding: 7px 10px; }
   .cardtitle { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
   .syncform { display: flex; flex-direction: column; gap: 8px; }
   .syncform input { width: 100%; }
@@ -185,24 +193,25 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v9</small></h1>
+    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v10</small></h1>
     <div class="settings">
       <button id="syncDot" title="Synchronisation">☁ aus</button>
-      <div class="seg" id="segName" title="Notenschreibweise">
-        <button data-v="de">H</button><button data-v="en">B</button>
-      </div>
-      <div class="seg" id="segAcc" title="Vorzeichen">
-        <button data-v="auto" title="passend zur Tonart">Auto</button><button data-v="sharp">♯</button><button data-v="flat">♭</button>
-      </div>
+      <button class="btn sm" id="settingsBtn" title="Einstellungen">⚙</button>
     </div>
   </header>
 
   <div class="songbar">
     <select id="songSel"></select>
-    <button class="btn sm" id="newSong">＋ Neuer Song</button>
+    <button class="btn sm" id="newSong" title="Neuer Song">＋ Neu</button>
+    <div class="menuwrap"><button class="btn sm" id="songMenuBtn" title="Weitere Aktionen für diesen Song">⋯</button>
+      <div class="menu" id="songMenu" hidden>
+        <button id="fromPartner">Aus Partner einfügen</button>
+        <button id="delSong" class="danger">Diesen Song löschen</button>
+      </div>
+    </div>
   </div>
 
-  <div class="tabs">
+  <div class="tabs" id="tabs">
     <button data-tab="write" class="on">✎ Schreiben</button>
     <button data-tab="sheet">♫ Chordsheet</button>
   </div>
@@ -257,7 +266,11 @@
       <button class="btn" id="printSheet">Drucken / PDF</button>
       <button class="btn" data-claude>🤖 An Claude senden</button>
     </div>
-    <section class="card noprint" id="syncCard">
+  </div>
+  <!-- ================= EINSTELLUNGEN ================= -->
+  <div id="viewSettings" style="display:none;flex-direction:column;gap:12px">
+    <div><button class="btn sm" id="settingsBack">← Zurück</button></div>
+    <section class="card" id="syncCard">
       <div class="cardtitle">Synchronisation Handy ↔ PC</div>
       <div class="syncform" id="syncOff">
         <p class="hint" style="margin:0">Deine Songs werden in einem privaten GitHub-Repository gespeichert und auf allen Geräten abgeglichen. Auf jedem Gerät einmal Repository und Token eintragen.</p>
@@ -270,16 +283,25 @@
         <div class="controls" style="justify-content:flex-start"><button class="btn sm" id="syncNow">↻ Jetzt synchronisieren</button><button class="btn sm" id="syncDisconnect">Trennen</button></div>
       </div>
     </section>
-    <section class="card noprint">
-      <div style="font-size:14px;font-weight:600;margin-bottom:10px">Song-Verwaltung</div>
+    <section class="card">
+      <div class="cardtitle">Notenschreibweise</div>
+      <div class="setrow"><span>Namen</span>
+      <div class="seg" id="segName">
+        <button data-v="de">Deutsch (H, B)</button><button data-v="en">International (B, Bb)</button>
+      </div></div>
+      <div class="setrow"><span>Vorzeichen</span>
+      <div class="seg" id="segAcc">
+        <button data-v="auto">Passend zur Tonart</button><button data-v="sharp">♯</button><button data-v="flat">♭</button>
+      </div></div>
+    </section>
+    <section class="card">
+      <div class="cardtitle">Daten sichern</div>
       <div class="controls" style="justify-content:flex-start">
-        <button class="btn sm" id="fromPartner">Aus Partner einfügen</button>
         <button class="btn sm" id="exportBtn">Alle Songs exportieren</button>
         <button class="btn sm" id="importBtn">Importieren</button>
-        <button class="btn sm" id="delSong" style="color:var(--warn)">Diesen Song löschen</button>
         <input type="file" id="importFile" accept=".json,application/json" hidden>
       </div>
-      <p class="hint">Die Songs sind in diesem Browser gespeichert. Mit Export/Import kannst du sie sichern oder auf ein anderes Gerät bringen.</p>
+      <p class="hint">Sicherungskopie als Datei – zum Beispiel bevor du etwas Grösseres änderst.</p>
     </section>
   </div>
 </div>
@@ -461,7 +483,26 @@
   $("showNotes").checked = settings.showNotes; $("showNotes").onchange = e => { settings.showNotes = e.target.checked; saveSettings(); renderSheet(); };
 
   const sheetVisible = () => $("viewSheet").style.display !== "none";
+  let lastTab = "write";
+  function openSettings() {
+    if (running) stop();
+    $("songMenu").hidden = true;
+    ["tabs", "viewWrite", "viewSheet"].forEach(id => $(id).style.display = "none");
+    $("viewSettings").style.display = "flex"; window.scrollTo(0, 0);
+  }
+  function closeSettings() {
+    $("viewSettings").style.display = "none"; $("tabs").style.display = "";
+    document.querySelector(`.tabs button[data-tab="${lastTab}"]`).click();
+  }
+  $("settingsBtn").onclick = () => $("viewSettings").style.display === "flex" ? closeSettings() : openSettings();
+  $("settingsBack").onclick = closeSettings;
+  // Menü ⋯ beim Song
+  $("songMenuBtn").onclick = e => { e.stopPropagation(); $("songMenu").hidden = !$("songMenu").hidden; };
+  document.addEventListener("click", e => { if (!e.target.closest(".menuwrap")) $("songMenu").hidden = true; });
+  $("fromPartner").addEventListener("click", () => $("songMenu").hidden = true);
   document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+    lastTab = b.dataset.tab;
+    if ($("viewSettings").style.display === "flex") { $("viewSettings").style.display = "none"; $("tabs").style.display = ""; }
     document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x === b));
     const w = b.dataset.tab === "write";
     $("viewWrite").style.display = w ? "flex" : "none";
@@ -762,7 +803,7 @@
     if (!b.dataset.confirm) { b.dataset.confirm = 1; b.textContent = "Wirklich löschen?"; setTimeout(() => { b.textContent = "Diesen Song löschen"; delete b.dataset.confirm; }, 3000); return; }
     deleted[curId] = Date.now(); save("st.deleted", deleted);
     songs = songs.filter(s => s.id !== curId); if (!songs.length) songs.push(newSong());
-    curId = songs[0].id; persist(); refreshAll(); toast("Song gelöscht");
+    curId = songs[0].id; persist(); refreshAll(); toast("Song gelöscht"); $("songMenu").hidden = true;
     b.textContent = "Diesen Song löschen"; delete b.dataset.confirm;
   };
 
@@ -905,8 +946,7 @@
   $("syncDisconnect").onclick = () => { syncCfg.token = ""; syncCfg.last = 0; saveSync(); setSyncState(); toast("Getrennt – Songs bleiben auf diesem Gerät"); };
   $("syncDot").onclick = () => {
     if (syncOn()) { sync(); return; }
-    document.querySelector('.tabs button[data-tab="sheet"]').click();
-    setTimeout(() => $("syncCard").scrollIntoView({ behavior: "smooth" }), 50);
+    openSettings();
   };
   document.addEventListener("visibilitychange", () => { if (syncOn()) sync(); });
   window.addEventListener("online", () => sync());
