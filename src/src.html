@@ -257,6 +257,7 @@
     <section class="card noprint">
       <div style="font-size:14px;font-weight:600;margin-bottom:10px">Song-Verwaltung</div>
       <div class="controls" style="justify-content:flex-start">
+        <button class="btn sm" id="fromPartner">Aus Partner einfügen</button>
         <button class="btn sm" id="exportBtn">Alle Songs exportieren</button>
         <button class="btn sm" id="importBtn">Importieren</button>
         <button class="btn sm" id="delSong" style="color:var(--warn)">Diesen Song löschen</button>
@@ -274,6 +275,14 @@
     <div class="cgrid" id="pGrid"></div>
     <div class="prow"><input type="text" id="pCustom" placeholder="Eigener Akkord, z.B. Fmaj7, Dsus4, G/H"><button class="btn" id="pCustomOk">Setzen</button></div>
     <div class="prow"><button class="btn" id="pRemove" style="flex:1">Akkord entfernen</button><button class="btn" id="pCancel" style="flex:1">Abbrechen</button></div>
+  </div>
+</div>
+<div class="overlay hidden" id="partnerDlg" style="align-items:center;padding:16px">
+  <div class="picker" style="border-radius:16px">
+    <h3>Song aus dem Songwriting-Partner einfügen</h3>
+    <div class="sub">Im Partner auf «Für Songtool kopieren» tippen und hier einfügen. Gibt es schon einen Song mit gleichem Titel, wird er aktualisiert.</div>
+    <textarea id="partnerText" rows="10" style="width:100%;font:13px/1.5 ui-monospace,Consolas,monospace" placeholder="SONG: …"></textarea>
+    <div class="prow"><button class="btn" id="partnerCancel" style="flex:1">Abbrechen</button><button class="btn primary" id="partnerOk" style="flex:1">Übernehmen</button></div>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -871,6 +880,78 @@
   window.addEventListener("online", () => sync());
   setSyncState(syncOn() ? "" : undefined);
 
+
+  // =============== Import aus dem Songwriting-Partner ===============
+  const PC_INTL = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11, H: 11 };
+  function parseNote(t) {
+    const m = t.trim().match(/^([A-H])(#|♯|b|♭)?(-?\d)$/); if (!m) return null;
+    let pc = PC_INTL[m[1]] + (m[2] === "#" || m[2] === "♯" ? 1 : m[2] ? -1 : 0);
+    return (+m[3] + 1) * 12 + pc;
+  }
+  function parseChord(t) {
+    t = t.trim(); const m = t.match(/^([A-G])(#|♯|b|♭)?(m|min|°|dim)?$/);
+    if (!m) return { txt: t };
+    const r = ((PC_INTL[m[1]] + (m[2] === "#" || m[2] === "♯" ? 1 : m[2] ? -1 : 0)) % 12 + 12) % 12;
+    return { r, q: !m[3] ? "maj" : (m[3] === "°" || m[3] === "dim") ? "dim" : "min" };
+  }
+  function parseKeyText(t) {
+    const m = (t || "").trim().match(/^([A-Ha-h])(#|♯|b|♭|is|es|s)?[\s-]*(major|minor|dur|moll)/i); if (!m) return "auto";
+    const L = m[1].toUpperCase(); let pc = L === "B" && /dur|moll/i.test(m[3]) ? 10 : PC_INTL[L];
+    if (/^(#|♯|is)$/.test(m[2] || "")) pc++; else if (m[2]) pc--;
+    return ((pc % 12) + 12) % 12 + ":" + (/minor|moll/i.test(m[3]) ? "min" : "maj");
+  }
+  const normSyl = x => x.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  function importPartner(txt) {
+    const out = { title: "", key: "auto", lang: "de", sections: [] }; let sec = null, last = null, legend = false, missing = 0;
+    txt.replace(/\r/g, "").split("\n").forEach(raw => {
+      const l = raw.replace(/\s+$/, ""); let m;
+      if ((m = l.match(/^SONG:\s*(.*)$/))) { out.title = m[1].trim(); return; }
+      if ((m = l.match(/^Tonart:\s*(.*)$/))) { out.key = parseKeyText(m[1]); return; }
+      if ((m = l.match(/^Sprache:\s*(.*)$/))) { out.lang = /engl/i.test(m[1]) ? "en" : "de"; return; }
+      if (/^Legende:/.test(l)) { legend = true; return; }
+      if (legend) { if (/^-\s/.test(l)) return; legend = false; }
+      if ((m = l.match(/^\[(.+)\]$/))) { const base = m[1].trim().replace(/\s+\d+$/, ""); sec = { id: uid(), type: TYPES.includes(base) ? base : m[1].trim(), lines: [] }; out.sections.push(sec); last = null; return; }
+      if ((m = l.match(/^\s+Melodie:\s*(.*)$/))) { if (last) last._mel = m[1]; return; }
+      if ((m = l.match(/^\s+Akkorde:\s*(.*)$/))) { if (last) last._chd = m[1]; return; }
+      if (!l.trim() || !sec) return;
+      last = newLine(l.trim() === "(ohne Text)" ? "" : l.trim()); sec.lines.push(last);
+    });
+    out.sections.forEach(sec => {
+      if (!sec.lines.length) sec.lines.push(newLine());
+      sec.lines.forEach(line => {
+        if (line._mel) line.notes = line._mel.split("|").flatMap(part => { const v = part.split("=").slice(1).join("="); return v.split("~").map(parseNote).filter(n => n != null); });
+        if (line._chd) {
+          const us = units(line, out.lang); let from = 0;
+          line._chd.split(/,\s*(?![^()]*\))/).forEach(item => {
+            const [c, syl] = item.split("@").map(x => (x || "").trim()); if (!c) return;
+            let idx = -1;
+            if (!syl) idx = from;
+            else {
+              const target = normSyl(syl);
+              for (let i = from; i < us.length; i++) if (normSyl(us[i].t) === target) { idx = i; break; }
+              if (idx < 0) for (let i = from; i < us.length; i++) if (normSyl(us[i].t).startsWith(target) || target.startsWith(normSyl(us[i].t) || "#")) { idx = i; break; }
+            }
+            if (idx < 0 || idx >= Math.max(us.length, 1)) { missing++; return; }
+            line.chords[idx] = parseChord(c); from = idx + 1;
+          });
+        }
+        delete line._mel; delete line._chd;
+      });
+    });
+    return { song: out, missing };
+  }
+  $("fromPartner").onclick = () => { $("partnerText").value = ""; $("partnerDlg").classList.remove("hidden"); $("partnerText").focus(); };
+  $("partnerCancel").onclick = () => $("partnerDlg").classList.add("hidden");
+  $("partnerOk").onclick = () => {
+    const { song: p, missing } = importPartner($("partnerText").value);
+    if (!p.sections.length) { toast("Kein Song erkannt"); return; }
+    $("partnerDlg").classList.add("hidden");
+    let s = songs.find(x => (x.title || "").trim().toLowerCase() === p.title.trim().toLowerCase());
+    if (s) Object.assign(s, { key: p.key !== "auto" ? p.key : s.key, lang: p.lang, sections: p.sections, active: { s: 0, l: 0 } });
+    else { s = Object.assign(newSong(p.title || "Song aus Partner"), { key: p.key, lang: p.lang, sections: p.sections }); songs.push(s); }
+    curId = s.id; persist(); refreshAll();
+    toast((s ? "Song übernommen" : "") + (missing ? " · " + missing + " Akkord(e) ohne passende Silbe" : ""));
+  };
   /*AUDIO*/
   function addNote(midi, auto) {
     const s = song(); clampActive(s);
