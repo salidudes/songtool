@@ -63,6 +63,11 @@
   button.btn.sm { padding: 6px 10px; font-size: 13px; }
   button.btn.ghost { background: none; }
   button.btn[disabled] { opacity: .4; cursor: default; }
+  .kbbar { display: flex; gap: 6px; align-items: center; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .kb { position: relative; height: 120px; user-select: none; touch-action: manipulation; }
+  .kb .w { position: absolute; top: 0; height: 120px; background: #e9ebef; border: 1px solid #9aa0aa; border-radius: 0 0 7px 7px; color: #333; font-size: 11px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 5px; cursor: pointer; }
+  .kb .b { position: absolute; top: 0; height: 72px; background: #1b1d22; border: 1px solid #000; border-radius: 0 0 5px 5px; z-index: 2; cursor: pointer; }
+  .kb .hit.w { background: var(--accent); } .kb .hit.b { background: #b8860b; }
   .target { font-size: 12px; color: var(--muted); width: 100%; text-align: center; }
   .target b { color: var(--accent); font-weight: 600; }
   .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); cursor: pointer; user-select: none; }
@@ -197,8 +202,13 @@
     <div class="controls">
       <button class="btn primary big" id="startBtn">🎤 Start</button>
       <button class="btn big" id="addBtn" disabled>＋ Notieren</button>
+      <button class="btn big" id="kbBtn" title="Melodie per Tastatur eingeben">🎹</button>
       <div class="target" id="target"></div>
     </div>
+    <section class="card" id="kbCard" hidden>
+      <div class="kbbar"><button class="btn sm" id="kbDown">‹ Oktave</button><span id="kbInfo">Taste tippen = Ton in die aktive Zeile</span><button class="btn sm" id="kbUp">Oktave ›</button></div>
+      <div class="kb" id="kb"></div>
+    </section>
     <div class="controls" style="gap:16px">
       <label class="toggle"><input type="checkbox" id="smooth"> Ton glätten</label>
       <label class="toggle"><input type="checkbox" id="autoAdd"> Gehaltene Töne automatisch notieren</label>
@@ -1221,6 +1231,26 @@ function sylSplit(word, lang) {
   }
 
   // =============== Start ===============
+
+  // =============== Tastatur: Melodie selbst eingeben ===============
+  let kbLow = 48;
+  function drawKb() {
+    const box = $("kb"); box.innerHTML = "";
+    const W = 100 / 14, whites = [0, 2, 4, 5, 7, 9, 11], blacks = { 1: 0, 3: 1, 6: 3, 8: 4, 10: 5 };
+    const hit = (m, k) => { playTone(m, .5); addNote(m, true); k.classList.add("hit"); setTimeout(() => k.classList.remove("hit"), 150); };
+    for (let o = 0; o < 2; o++) {
+      whites.forEach((pc, i) => { const m = kbLow + o * 12 + pc, k = document.createElement("div"); k.className = "w";
+        k.style.left = (o * 7 + i) * W + "%"; k.style.width = W + "%"; k.textContent = noteName(m) + (pc === 0 ? octave(m) : "");
+        k.onpointerdown = e => { e.preventDefault(); hit(m, k); }; box.appendChild(k); });
+      Object.entries(blacks).forEach(([pc, wi]) => { const m = kbLow + o * 12 + +pc, k = document.createElement("div"); k.className = "b";
+        k.style.left = ((o * 7 + wi + 1) * W - W * .3) + "%"; k.style.width = W * .6 + "%";
+        k.onpointerdown = e => { e.preventDefault(); hit(m, k); }; box.appendChild(k); });
+    }
+  }
+  $("kbBtn").onclick = () => { const c = $("kbCard"); c.hidden = !c.hidden; $("kbBtn").classList.toggle("primary", !c.hidden); if (!c.hidden) drawKb(); };
+  $("kbDown").onclick = () => { kbLow = Math.max(24, kbLow - 12); drawKb(); };
+  $("kbUp").onclick = () => { kbLow = Math.min(84, kbLow + 12); drawKb(); };
+
 
   refreshAll();
   sync();
