@@ -10,18 +10,43 @@
     voices.push(o, o2);
   }
   // Ein Knopf startet die Wiedergabe, derselbe Knopf (■) stoppt sie
-  let voices = [], playBtn = null, playTimer = null;
+  let voices = [], playBtn = null, playTimer = null, curAudio = null;
   function stopAll() {
     voices.forEach(o => { try { o.stop(); } catch {} }); voices = [];
+    if (curAudio) { try { curAudio.pause(); } catch {} curAudio = null; }
     clearTimeout(playTimer);
-    if (playBtn) { playBtn.textContent = "▶"; playBtn.classList.remove("primary"); playBtn = null; }
+    if (playBtn) { playBtn.innerHTML = playBtn._label; playBtn.classList.remove("primary"); playBtn = null; }
   }
-  function playMelody(notes, btn) {
+  function togglePlay(btn, fn) {
     if (btn && playBtn === btn) { stopAll(); return; }
     stopAll();
-    if (!notes.length) return; const c = ac(); const t0 = c.currentTime + .05; let t = t0;
-    notes.forEach(m => { playTone(m, .45, t); t += .42; });
-    if (btn) { playBtn = btn; btn.textContent = "■"; btn.classList.add("primary"); playTimer = setTimeout(() => { if (playBtn === btn) { btn.textContent = "▶"; btn.classList.remove("primary"); playBtn = null; voices = []; } }, (t - t0) * 1000 + 200); }
+    const dur = fn(); if (!dur || !btn) return;
+    playBtn = btn; btn._label = btn.innerHTML; btn.innerHTML = btn.innerHTML.replace("▶", "■"); btn.classList.add("primary");
+    playTimer = setTimeout(() => { if (playBtn === btn) { btn.innerHTML = btn._label; btn.classList.remove("primary"); playBtn = null; voices = []; } }, dur * 1000 + 200);
+  }
+  function playMelody(notes, btn) {
+    togglePlay(btn, () => {
+      if (!notes.length) return 0; const c = ac(); const t0 = c.currentTime + .05; let t = t0;
+      notes.forEach(m => { playTone(m, .45, t); t += .42; });
+      return t - t0;
+    });
+  }
+  // Töne mit Start/Ende (aus Memos)
+  function playTimed(notes, btn) {
+    togglePlay(btn, () => {
+      if (!notes.length) return 0; const c = ac(), t0 = c.currentTime + .05, base = notes[0].start;
+      notes.forEach(n => playTone(n.m, Math.max(.15, n.end - n.start), t0 + n.start - base, .3));
+      return notes[notes.length - 1].end - base + .1;
+    });
+  }
+  function playBlob(blob, btn, t0, t1) {
+    togglePlay(btn, () => {
+      const a = new Audio(URL.createObjectURL(blob)); curAudio = a;
+      a.onended = () => { if (curAudio === a) stopAll(); };
+      if (t0) a.currentTime = Math.max(0, t0 - .1);
+      a.play().catch(() => { toast("Abspielen nicht möglich"); stopAll(); });
+      return t1 != null ? (t1 - (t0 || 0) + .3) : 3600;
+    });
   }
   function playChord(c) {
     if (c.txt != null) return; const t = ac().currentTime;

@@ -133,12 +133,12 @@
     metaEl.textContent = f.toFixed(1) + " Hz · " + (cents > 0 ? "+" : "") + cents + " Cent";
     needle.style.left = (50 + Math.max(-50, Math.min(50, cents))) + "%"; needle.style.opacity = 1;
     needle.style.background = Math.abs(cents) <= 10 ? "var(--good)" : "var(--accent)";
-    $("addBtn").disabled = false;
+    
   }
   function showIdle(msg) {
     noteEl.className = "note idle"; noteEl.textContent = "–";
     if (msg !== undefined) metaEl.textContent = msg || "Ich höre zu …";
-    needle.style.opacity = 0; $("addBtn").disabled = true;
+    needle.style.opacity = 0;
   }
 
   // =============== Verlauf zeichnen ===============

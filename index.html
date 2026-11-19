@@ -63,11 +63,6 @@
   button.btn.sm { padding: 6px 10px; font-size: 13px; }
   button.btn.ghost { background: none; }
   button.btn[disabled] { opacity: .4; cursor: default; }
-  .kbbar { display: flex; gap: 6px; align-items: center; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
-  .kb { position: relative; height: 120px; user-select: none; touch-action: manipulation; }
-  .kb .w { position: absolute; top: 0; height: 120px; background: #e9ebef; border: 1px solid #9aa0aa; border-radius: 0 0 7px 7px; color: #333; font-size: 11px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 5px; cursor: pointer; }
-  .kb .b { position: absolute; top: 0; height: 72px; background: #1b1d22; border: 1px solid #000; border-radius: 0 0 5px 5px; z-index: 2; cursor: pointer; }
-  .kb .hit.w { background: var(--accent); } .kb .hit.b { background: #b8860b; }
   .target { font-size: 12px; color: var(--muted); width: 100%; text-align: center; }
   .target b { color: var(--accent); font-weight: 600; }
   .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); cursor: pointer; user-select: none; }
@@ -100,6 +95,29 @@
   .chip .x { color: var(--muted); font-weight: 400; padding: 0 3px; }
   .chip.playing { border-color: var(--accent); }
   .empty { color: var(--muted); font-size: 12px; }
+  .sec.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .sec.active .sec-head { background: rgba(240,180,41,.13); }
+  .sec .here { display: none; font-size: 11px; color: var(--accent); margin-left: 4px; }
+  .sec.active .here { display: inline; }
+  .recbtn.on { color: #fff !important; background: #d64545 !important; border-color: #d64545 !important; font-variant-numeric: tabular-nums; }
+  .memos { display: flex; flex-direction: column; gap: 6px; }
+  .memos:empty { display: none; }
+  .memo { border: 1px solid var(--line); border-radius: 10px; padding: 7px 9px; display: flex; flex-direction: column; gap: 3px; background: var(--panel); }
+  .memo-top { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .memo-top b { font-size: 14px; } .memo-top small { color: var(--muted); font-size: 12px; }
+  .memo-acts { margin-left: auto; display: flex; gap: 2px; }
+  .memo-notes { font: 11.5px/1.4 ui-monospace, Consolas, monospace; color: var(--muted); overflow-wrap: anywhere; }
+  .kpill { font-size: 11px; border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; }
+  .kpill.gesang { color: var(--accent); border-color: rgba(240,180,41,.4); } .kpill.melodie { color: var(--good); border-color: rgba(62,207,142,.4); } .kpill.andere { color: var(--muted); }
+  .phr { border: 1px solid var(--line); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--bg); }
+  .phr.off { opacity: .45; }
+  .phr-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+  .phr-head select { font-size: 13px; padding: 5px 6px; margin-left: auto; max-width: 60%; }
+  .nchips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .nchip { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 2px 3px 2px 7px; font-size: 13px; display: inline-flex; align-items: center; gap: 3px; }
+  .nchip small { color: var(--muted); font-size: 10px; } .nchip.short { border-style: dashed; color: var(--muted); }
+  .nchip button { background: none; border: 0; color: var(--muted); padding: 0 3px; cursor: pointer; }
+  .progress { height: 6px; background: var(--panel2); border-radius: 3px; overflow: hidden; } .progress div { height: 100%; width: 0; background: var(--accent); }
   .addsec { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin-top: 12px; }
 
   /* Lead-Sheet-Darstellung */
@@ -163,7 +181,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v7</small></h1>
+    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v8</small></h1>
     <div class="settings">
       <button id="syncDot" title="Synchronisation">☁ aus</button>
       <div class="seg" id="segName" title="Notenschreibweise">
@@ -201,17 +219,12 @@
 
     <div class="controls">
       <button class="btn primary big" id="startBtn">🎤 Start</button>
-      <button class="btn big" id="addBtn" disabled>＋ Notieren</button>
-      <button class="btn big" id="kbBtn" title="Melodie per Tastatur eingeben">🎹</button>
+
       <div class="target" id="target"></div>
     </div>
-    <section class="card" id="kbCard" hidden>
-      <div class="kbbar"><button class="btn sm" id="kbDown">‹ Oktave</button><span id="kbInfo">Taste tippen = Ton in die aktive Zeile</span><button class="btn sm" id="kbUp">Oktave ›</button></div>
-      <div class="kb" id="kb"></div>
-    </section>
     <div class="controls" style="gap:16px">
       <label class="toggle"><input type="checkbox" id="smooth"> Ton glätten</label>
-      <label class="toggle"><input type="checkbox" id="autoAdd"> Gehaltene Töne automatisch notieren</label>
+      <label class="toggle"><input type="checkbox" id="autoAdd"> Gehaltene Töne in die aktive Zeile schreiben</label>
     </div>
 
     <section class="card">
@@ -285,6 +298,15 @@
     <div class="cgrid" id="pGrid"></div>
     <div class="prow"><input type="text" id="pCustom" placeholder="Eigener Akkord, z.B. Fmaj7, Dsus4, G/H"><button class="btn" id="pCustomOk">Setzen</button></div>
     <div class="prow"><button class="btn" id="pRemove" style="flex:1">Akkord entfernen</button><button class="btn" id="pCancel" style="flex:1">Abbrechen</button></div>
+  </div>
+</div>
+<div class="overlay hidden" id="memoDlg" style="align-items:center;padding:12px">
+  <div class="picker" style="border-radius:16px;max-height:calc(100vh - 24px);overflow-y:auto">
+    <h3 id="memoTitle">Memo</h3>
+    <div class="sub" id="memoInfo"></div>
+    <div class="progress" id="memoProg"><div></div></div>
+    <div id="memoBody" style="display:flex;flex-direction:column;gap:8px"></div>
+    <div class="prow"><button class="btn" id="memoCancel" style="flex:1">Verwerfen</button><button class="btn primary" id="memoOk" style="flex:1" disabled>Speichern</button></div>
   </div>
 </div>
 <div class="overlay hidden" id="partnerDlg" style="align-items:center;padding:16px">
@@ -366,19 +388,20 @@ function sylSplit(word, lang) {
   // =============== Speicher ===============
   const load = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } };
   const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
-  const settings = Object.assign({ naming: "de", acc: "auto", auto: false, smooth: true, showNotes: true }, load("st.settings", {}));
+  const settings = Object.assign({ naming: "de", acc: "auto", auto: true, smooth: true, showNotes: true }, load("st.settings", {}));
+  if (!settings.v8) { settings.auto = true; settings.v8 = true; }   // ohne Notieren-Knopf: automatisch mitschreiben ist Standard
   const saveSettings = () => save("st.settings", settings);
 
   const uid = () => Math.random().toString(36).slice(2, 10);
   const newLine = (text = "") => ({ text, notes: [], chords: {} });
-  const newSection = (type) => ({ id: uid(), type, lines: [newLine()] });
+  const newSection = (type) => ({ id: uid(), type, lines: [newLine()], memos: [] });
   const newSong = (title) => ({ id: uid(), title: title || "Neuer Song", key: "auto", lang: "de", sections: [newSection("Verse")], active: { s: 0, l: 0 }, updatedAt: Date.now() });
 
   function migrate(s) {
     if (!s.sections) { s.sections = [{ id: uid(), type: "Verse", lines: s.lines?.length ? s.lines : [newLine()] }]; s.active = { s: 0, l: typeof s.active === "number" ? s.active : 0 }; delete s.lines; }
     s.lang = s.lang || "de"; s.key = s.key || "auto"; s.updatedAt = s.updatedAt || Date.now();
     if (!s.active || typeof s.active !== "object") s.active = { s: 0, l: 0 };
-    s.sections.forEach(sec => { if (!sec.lines.length) sec.lines.push(newLine()); sec.lines.forEach(l => { l.chords = l.chords || {}; l.notes = l.notes || []; l.text = l.text || ""; }); });
+    s.sections.forEach(sec => { sec.id = sec.id || uid(); sec.memos = sec.memos || []; if (!sec.lines.length) sec.lines.push(newLine()); sec.lines.forEach(l => { l.chords = l.chords || {}; l.notes = l.notes || []; l.text = l.text || ""; }); });
     if (!s.sections.length) s.sections.push(newSection("Verse"));
     return s;
   }
@@ -582,15 +605,16 @@ function sylSplit(word, lang) {
   function renderSections() {
     const s = song(), box = $("secs"); box.innerHTML = ""; clampActive(s);
     s.sections.forEach((sec, si) => {
-      const el = document.createElement("div"); el.className = "sec"; el.dataset.s = si;
+      const el = document.createElement("div"); el.className = "sec" + (si === s.active.s ? " active" : ""); el.dataset.s = si; el.dataset.id = sec.id;
       const opts = TYPES.map(t => `<option${t === sec.type ? " selected" : ""}>${t}</option>`).join("");
       const lbl = secLabel(s, si), num = lbl !== sec.type ? lbl.slice(sec.type.length) : "";
-      el.innerHTML = `<div class="sec-head"><select>${opts}</select><span class="num">${num}</span>
-          <span class="acts"><button class="btn sm ghost" data-a="sug" title="Akkorde vorschlagen">✨</button>
+      el.innerHTML = `<div class="sec-head"><select>${opts}</select><span class="num">${num}</span><span class="here">● hier wird notiert</span>
+          <span class="acts"><button class="btn sm ghost recbtn" data-a="rec" title="Memo aufnehmen">🎙</button><button class="btn sm ghost" data-a="sug" title="Akkorde vorschlagen">✨</button>
           <button class="btn sm ghost" data-a="dup" title="Duplizieren">⧉</button>
           <button class="btn sm ghost" data-a="up" title="Nach oben">↑</button>
           <button class="btn sm ghost" data-a="del" title="Löschen">✕</button></span></div>
-        <div class="sec-body"><textarea rows="2" placeholder="Text für ${esc(sec.type)} – eine Liedzeile pro Zeile" spellcheck="false"></textarea><div class="pv"></div></div>`;
+        <div class="sec-body"><textarea rows="2" placeholder="Text für ${esc(sec.type)} – eine Liedzeile pro Zeile" spellcheck="false"></textarea><div class="pv"></div><div class="memos"></div></div>`;
+      el.onclick = e => { if (e.target.closest("button,select,textarea,.u,.chip,.memo,input")) return; setActive(si, s.active.s === si ? s.active.l : 0); };
       el.querySelector("select").onchange = e => { sec.type = e.target.value; persist(); renderSections(); };
       const ta = el.querySelector("textarea");
       ta.value = sec.lines.map(l => l.text).join("\n");
@@ -599,21 +623,22 @@ function sylSplit(word, lang) {
       const follow = () => setActive(si, caretLine());
       ta.onclick = follow; ta.onkeyup = e => { if (e.key.startsWith("Arrow") || e.key === "Enter") follow(); }; ta.onfocus = () => setTimeout(follow, 0);
       el.querySelector(".acts").onclick = e => {
-        const a = e.target.dataset.a; if (!a) return;
+        const a = e.target.closest("[data-a]")?.dataset.a; if (!a) return;
+        if (a === "rec") { setActive(si, s.active.s === si ? s.active.l : 0); toggleRecording(s, sec); return; }
         if (a === "sug") { let n = 0; sec.lines.forEach((_, li) => { if (suggestLine(si, li)) n++; }); renderPreview(si); toast(n ? "Akkorde vorgeschlagen" : "Dieser Teil hat noch keine Noten"); }
         if (a === "dup") { const c = JSON.parse(JSON.stringify(sec)); c.id = uid(); s.sections.splice(si + 1, 0, c); persist(); renderSections(); }
         if (a === "up" && si > 0) { [s.sections[si - 1], s.sections[si]] = [s.sections[si], s.sections[si - 1]]; if (s.active.s === si) s.active.s--; else if (s.active.s === si - 1) s.active.s++; persist(); renderSections(); }
         if (a === "del") {
-          const b = e.target, hasContent = sec.lines.some(l => l.text || l.notes.length);
+          const b = e.target, hasContent = sec.lines.some(l => l.text || l.notes.length) || (sec.memos || []).length;
           if (hasContent && !b.dataset.confirm) { b.dataset.confirm = 1; b.textContent = "Löschen?"; setTimeout(() => { if (b.isConnected) { b.textContent = "✕"; delete b.dataset.confirm; } }, 2500); return; }
           s.sections.splice(si, 1); if (!s.sections.length) s.sections.push(newSection("Verse"));
           persist(); refreshAll();
         }
       };
       box.appendChild(el);
-      autoGrow(ta); renderPreview(si);
+      autoGrow(ta); renderPreview(si); renderMemos(s, sec);
     });
-    updateTarget();
+    updateTarget(); paintRecBtn();
     requestAnimationFrame(() => box.querySelectorAll("textarea").forEach(autoGrow));
   }
 
@@ -621,6 +646,7 @@ function sylSplit(word, lang) {
     const s = song(), a = s.active;
     if (a.s === si && a.l === li) return;
     const prevS = a.s; a.s = si; a.l = li; clampActive(s); persist(false);
+    document.querySelectorAll("#secs .sec").forEach(x => x.classList.toggle("active", +x.dataset.s === a.s));
     if (!silent) { renderPreview(si); if (prevS !== si) renderPreview(prevS); }
     else if (prevS !== si) renderPreview(prevS);
     updateTarget();
@@ -819,10 +845,12 @@ function sylSplit(word, lang) {
     out += `Legende:\n- «Melodie» = meine GESUNGENE Melodie, Silbe für Silbe (Silbe=Note). Oktave wissenschaftlich, C4 = mittleres C. Mehrere Noten auf einer Silbe sind mit ~ verbunden.\n`;
     out += `- «Akkorde» = Begleitakkorde, die ich gesetzt oder die App vorgeschlagen hat; «@ Silbe» = dort wechselt der Akkord.\n`;
     out += `- Notennamen international: B = deutsches H, Bb = deutsches B.\n`;
+    out += `- «Memo» = separate Sprachaufnahme zu diesem Teil (Ton + Dauer, Phrasen mit / getrennt), z.B. eine gesummte Melodie-Idee.\n`;
     s.sections.forEach((sec, si) => {
-      const lines = sec.lines.filter(l => l.text.trim() || l.notes.length);
-      if (!lines.length) return;
+      const lines = sec.lines.filter(l => l.text.trim() || l.notes.length), memos = sec.memos || [];
+      if (!lines.length && !memos.length) return;
       out += `\n[${secLabel(s, si)}]\n`;
+      memos.forEach(m => out += memoLine(m, fl) + "\n");
       lines.forEach(line => {
         const us = units(line, s.lang);
         out += (line.text.trim() || "(ohne Text)") + "\n";
@@ -980,7 +1008,9 @@ function sylSplit(word, lang) {
       if ((m = l.match(/^Sprache:\s*(.*)$/))) { out.lang = /engl/i.test(m[1]) ? "en" : "de"; return; }
       if (/^Legende:/.test(l)) { legend = true; return; }
       if (legend) { if (/^-\s/.test(l)) return; legend = false; }
-      if ((m = l.match(/^\[(.+)\]$/))) { const base = m[1].trim().replace(/\s+\d+$/, ""); sec = { id: uid(), type: TYPES.includes(base) ? base : m[1].trim(), lines: [] }; out.sections.push(sec); last = null; return; }
+      if ((m = l.match(/^\[(.+)\]$/))) { const base = m[1].trim().replace(/\s+\d+$/, ""); sec = { id: uid(), type: TYPES.includes(base) ? base : m[1].trim(), lines: [], memos: [] }; out.sections.push(sec); last = null; return; }
+      if (/^\s+Memo «/.test(l)) { const mm = parseMemoLine(l); if (mm && sec) sec.memos.push(mm); return; }
+      if (/^\s+Längen:/.test(l)) return;
       if ((m = l.match(/^\s+Melodie:\s*(.*)$/))) { if (last) last._mel = m[1]; return; }
       if ((m = l.match(/^\s+Akkorde:\s*(.*)$/))) { if (last) last._chd = m[1]; return; }
       if (!l.trim() || !sec) return;
@@ -1017,7 +1047,12 @@ function sylSplit(word, lang) {
     if (!p.sections.length) { toast("Kein Song erkannt"); return; }
     $("partnerDlg").classList.add("hidden");
     let s = songs.find(x => (x.title || "").trim().toLowerCase() === p.title.trim().toLowerCase());
-    if (s) Object.assign(s, { key: p.key !== "auto" ? p.key : s.key, lang: p.lang, sections: p.sections, active: { s: 0, l: 0 } });
+    if (s) {
+      // gleiche Memos (Teil + Name) behalten ihre ID → die Aufnahme auf diesem Gerät bleibt verknüpft
+      const oldIds = {}; s.sections.forEach((sec, i) => (sec.memos || []).forEach(m => oldIds[secLabel(s, i) + "|" + m.name] = m.id));
+      Object.assign(s, { key: p.key !== "auto" ? p.key : s.key, lang: p.lang, sections: p.sections, active: { s: 0, l: 0 } });
+      s.sections.forEach((sec, i) => (sec.memos || []).forEach(m => { const id = oldIds[secLabel(s, i) + "|" + m.name]; if (id) m.id = id; }));
+    }
     else { s = Object.assign(newSong(p.title || "Song aus Partner"), { key: p.key, lang: p.lang, sections: p.sections }); songs.push(s); }
     curId = s.id; persist(); refreshAll();
     toast((s ? "Song übernommen" : "") + (missing ? " · " + missing + " Akkord(e) ohne passende Silbe" : ""));
@@ -1157,12 +1192,12 @@ function sylSplit(word, lang) {
     metaEl.textContent = f.toFixed(1) + " Hz · " + (cents > 0 ? "+" : "") + cents + " Cent";
     needle.style.left = (50 + Math.max(-50, Math.min(50, cents))) + "%"; needle.style.opacity = 1;
     needle.style.background = Math.abs(cents) <= 10 ? "var(--good)" : "var(--accent)";
-    $("addBtn").disabled = false;
+    
   }
   function showIdle(msg) {
     noteEl.className = "note idle"; noteEl.textContent = "–";
     if (msg !== undefined) metaEl.textContent = msg || "Ich höre zu …";
-    needle.style.opacity = 0; $("addBtn").disabled = true;
+    needle.style.opacity = 0;
   }
 
   // =============== Verlauf zeichnen ===============
@@ -1209,7 +1244,249 @@ function sylSplit(word, lang) {
     s.sections[si].lines[li].notes.push(midi); persist(); afterNotesChanged(si);
     if (!auto) toast(noteName(midi) + octave(midi) + " notiert");
   }
-  $("addBtn").onclick = () => { if (current) addNote(current.midi, false); };
+
+
+  // =============== Memos: direkt in der App aufnehmen ===============
+  const KIND = { gesang: "Gesang", melodie: "Melodie-Idee", andere: "Sonstiges" };
+  const KIND_BY_LABEL = { "gesang": "gesang", "melodie-idee": "melodie", "sonstiges": "andere" };
+  const sleep0 = () => new Promise(r => setTimeout(r, 0));
+  const tmean = trimmedMean;
+  const fmtT = t => Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0");
+  const memoNotes = m => m.phrases.reduce((a, p) => a + p.notes.length, 0);
+  async function decode(file) {
+    const buf = await file.arrayBuffer();
+    const AC = window.AudioContext || window.webkitAudioContext; const ac = new AC();
+    try { return await new Promise((res, rej) => { const p = ac.decodeAudioData(buf.slice(0), res, rej); if (p && p.then) p.then(res, rej); }); }
+    finally { try { ac.close(); } catch {} }
+  }
+  // Tonhöhe pro 10 ms (YIN auf ~16 kHz), dann Glättung zu Tönen wie in der App
+  async function analyze(audio, onProg) {
+    const ch = audio.numberOfChannels, len = audio.length, sr0 = audio.sampleRate;
+    const fct = Math.max(1, Math.floor(sr0 / 16000)), sr = sr0 / fct, n = Math.floor(len / fct), x = new Float32Array(n);
+    const chans = []; for (let c = 0; c < ch; c++) chans.push(audio.getChannelData(c));
+    for (let i = 0; i < n; i++) { let a = 0; for (let c = 0; c < ch; c++) { const d = chans[c]; for (let k = 0; k < fct; k++) a += d[i * fct + k]; } x[i] = a / (fct * ch); }
+    const N = 1024, W = N / 2, hop = Math.round(sr * .01), total = Math.max(0, Math.floor((n - N) / hop));
+    const tauMin = Math.floor(sr / 1100), tauMax = Math.min(W - 1, Math.floor(sr / 65)), d = new Float32Array(W);
+    const fr = new Array(total);
+    for (let f = 0; f < total; f++) { const o = f * hop; let r = 0; for (let i = 0; i < N; i++) { const v = x[o + i]; r += v * v; } fr[f] = { t: (o + N / 2) / sr, rms: Math.sqrt(r / N), m: null }; }
+    const srt = fr.map(q => q.rms).sort((a, b) => a - b), thr = Math.max(.002, (srt[Math.floor(srt.length * .9)] || 0) * .12);
+    for (let f = 0; f < total; f++) {
+      if (f % 150 === 0) { onProg(f / total); await sleep0(); }
+      if (fr[f].rms < thr) continue;
+      const o = f * hop; d[0] = 1; let run = 0;
+      for (let tau = 1; tau <= tauMax; tau++) { let sm = 0; for (let i = 0; i < W; i++) { const v = x[o + i] - x[o + i + tau]; sm += v * v; } run += sm; d[tau] = run ? sm * tau / run : 1; }
+      let tau = -1;
+      for (let t = tauMin; t <= tauMax; t++) if (d[t] < .15) { while (t + 1 <= tauMax && d[t + 1] < d[t]) t++; tau = t; break; }
+      if (tau < 0) continue;
+      let b = tau; if (tau > 1 && tau < tauMax) { const A = d[tau - 1], B = d[tau], C = d[tau + 1], den = A + C - 2 * B; if (den) b = tau + (A - C) / (2 * den); }
+      fr[f].m = 69 + 12 * Math.log2(sr / b / 440);
+    }
+    onProg(1);
+    // Glättung zu Tönen
+    const TOL = .7, SW = .09, SIL = .05, notes = [];
+    let seg = null, cand = [], last = -1, inTol = 0;
+    const close = end => { if (seg && end - seg.start >= .08) notes.push({ m: Math.round(seg.c), c: seg.c, start: seg.start, end }); seg = null; cand = []; };
+    for (const q of fr) {
+      if (q.m == null) { if (seg && q.t - last > SIL) close(last + .01); continue; }
+      last = q.t;
+      if (!seg) { seg = { vals: [q.m], start: q.t, c: q.m }; continue; }
+      if (Math.abs(q.m - seg.c) < TOL) { seg.vals.push(q.m); if (seg.vals.length > 80) seg.vals.shift(); seg.c = tmean(seg.vals); if (++inTol >= 2) cand = []; }
+      else {
+        inTol = 0; cand.push(q); cand = cand.filter(z => q.t - z.t <= .22);
+        if (cand.length >= 3 && q.t - cand[0].t >= SW) {
+          const rec = cand.filter(z => q.t - z.t <= .16).map(z => z.m), cm = median(rec);
+          if (median(rec.map(v => Math.abs(v - cm))) < .4) { const st = cand[0].t; close(st); seg = { vals: rec, start: st, c: tmean(rec) }; }
+        }
+      }
+    }
+    if (seg) close(last + .01);
+    // Phrasen: Pausen ab 0.4 s trennen
+    const phr = []; notes.forEach(nt => { const p = phr[phr.length - 1]; if (!p || nt.start - p.notes[p.notes.length - 1].end > .4) phr.push({ notes: [nt] }); else p.notes.push(nt); });
+    return phr;
+  }
+
+  // Aufnahmen lokal speichern (IndexedDB), damit du sie wieder anhören kannst
+  let idbP = null;
+  function idb() {
+    if (!idbP) idbP = new Promise((res, rej) => { try { const r = indexedDB.open("songtool", 1); r.onupgradeneeded = () => r.result.createObjectStore("audio"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); } catch (e) { rej(e); } });
+    return idbP;
+  }
+  async function idbDo(mode, fn) { const d = await idb(); return new Promise((res, rej) => { const tx = d.transaction("audio", mode), rq = fn(tx.objectStore("audio")); tx.oncomplete = () => res(rq && rq.result); tx.onerror = () => rej(tx.error); }); }
+  const audioPut = (id, blob) => idbDo("readwrite", st => st.put(blob, id)).catch(() => {});
+  const audioGet = id => idbDo("readonly", st => st.get(id)).catch(() => null);
+  const audioDel = id => idbDo("readwrite", st => st.delete(id)).catch(() => {});
+
+  let recState = null;
+  function paintRecBtn() {
+    document.querySelectorAll("#secs .recbtn").forEach(b => { b.classList.remove("on"); b.textContent = "🎙"; });
+    if (!recState) return;
+    const b = document.querySelector(`#secs .sec[data-id="${recState.secId}"] .recbtn`);
+    if (b) { b.classList.add("on"); b.textContent = "■ " + fmtT((Date.now() - recState.t0) / 1000); }
+  }
+  async function toggleRecording(s, sec) {
+    if (recState) {
+      if (recState.secId !== sec.id) { toast("Es läuft schon eine Aufnahme – erst stoppen"); return; }
+      recState.rec.stop(); return;
+    }
+    if (running) stop();
+    stopAll();
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true } }); }
+    catch (e) { toast("Kein Mikrofonzugriff – bitte im Browser erlauben"); return; }
+    const types = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg"];
+    const mime = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t));
+    let rec; try { rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined); } catch { toast("Aufnehmen wird von diesem Browser nicht unterstützt"); stream.getTracks().forEach(t => t.stop()); return; }
+    const chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      stream.getTracks().forEach(t => t.stop()); clearInterval(recState.tick);
+      try { recState.wl?.release(); } catch {}
+      const st = recState; recState = null; paintRecBtn();
+      const blob = new Blob(chunks, { type: rec.mimeType || mime || "audio/webm" });
+      if (blob.size < 2000) { toast("Aufnahme zu kurz"); return; }
+      newMemoFromBlob(st.songId, st.secId, blob);
+    };
+    rec.start(250);
+    recState = { rec, songId: s.id, secId: sec.id, t0: Date.now(), tick: setInterval(paintRecBtn, 500) };
+    try { recState.wl = await navigator.wakeLock?.request("screen"); } catch {}
+    paintRecBtn(); toast("Aufnahme läuft – zum Stoppen nochmal auf ■ tippen");
+  }
+
+  let memoEdit = null;   // { songId, secId, memo, blob, isNew }
+  function findSec(songId, secId) { const s = songs.find(x => x.id === songId); return { s, sec: s && s.sections.find(x => x.id === secId) }; }
+  async function newMemoFromBlob(songId, secId, blob) {
+    const { s, sec } = findSec(songId, secId); if (!sec) return;
+    $("memoTitle").textContent = "Neues Memo für " + secLabel(s, s.sections.indexOf(sec));
+    $("memoInfo").textContent = "Aufnahme wird ausgewertet …"; $("memoBody").innerHTML = ""; $("memoOk").disabled = true;
+    $("memoProg").hidden = false; $("memoProg").firstElementChild.style.width = "0";
+    $("memoDlg").classList.remove("hidden");
+    try {
+      const audio = await decode(blob);
+      const phr = await analyze(audio, p => $("memoProg").firstElementChild.style.width = Math.round(p * 100) + "%");
+      $("memoProg").hidden = true;
+      const cnt = phr.reduce((a, p) => a + p.notes.length, 0);
+      phr.forEach((p, k) => { p.target = k < sec.lines.length ? String(k) : "new"; p.notes = p.notes.map(n => ({ m: n.m, start: Math.round(n.start * 100) / 100, end: Math.round(n.end * 100) / 100 })); });
+      const time = new Date().toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" });
+      memoEdit = { songId, secId, blob, isNew: true, memo: { id: uid(), name: secLabel(s, s.sections.indexOf(sec)) + " " + time, kind: "gesang", apply: cnt > 0, applied: false, created: Date.now(), dur: Math.round(audio.duration * 10) / 10, phrases: phr } };
+      $("memoInfo").textContent = cnt ? `${fmtT(audio.duration)} · ${cnt} Töne in ${phr.length} Phrase(n) erkannt` : `${fmtT(audio.duration)} · keine Töne erkannt – das Memo kannst du trotzdem speichern`;
+      renderMemoDlg(); $("memoOk").disabled = false;
+    } catch (e) {
+      $("memoProg").hidden = true;
+      memoEdit = { songId, secId, blob, isNew: true, memo: { id: uid(), name: "Memo", kind: "andere", apply: false, applied: false, created: Date.now(), dur: 0, phrases: [] } };
+      $("memoInfo").textContent = "Die Töne konnten nicht ausgewertet werden. Du kannst die Aufnahme trotzdem als Memo speichern.";
+      renderMemoDlg(); $("memoOk").disabled = false;
+    }
+  }
+  async function editMemo(s, sec, memo) {
+    memoEdit = { songId: s.id, secId: sec.id, blob: await audioGet(memo.id), isNew: false, memo: JSON.parse(JSON.stringify(memo)) };
+    memoEdit.memo.apply = memo.kind === "gesang" && !!memo.applied;
+    memoEdit.memo.phrases.forEach((p, k) => { if (p.target == null) p.target = k < sec.lines.length ? String(k) : "new"; });
+    $("memoTitle").textContent = "Memo bearbeiten"; $("memoInfo").textContent = `${fmtT(memo.dur || 0)} · ${memoNotes(memo)} Töne`;
+    $("memoProg").hidden = true; renderMemoDlg(); $("memoOk").disabled = false; $("memoDlg").classList.remove("hidden");
+  }
+  function renderMemoDlg() {
+    const { s, sec } = findSec(memoEdit.songId, memoEdit.secId), M = memoEdit.memo, box = $("memoBody"); box.innerHTML = "";
+    const head = document.createElement("div"); head.className = "phr";
+    head.innerHTML = `<div class="prow"><input type="text" id="mName" placeholder="Name"><select id="mKind">${Object.entries(KIND).map(([k, v]) => `<option value="${k}"${M.kind === k ? " selected" : ""}>${v}</option>`).join("")}</select></div>
+      ${M.kind === "gesang" && M.phrases.length ? `<label class="toggle"><input type="checkbox" id="mApply"${M.apply ? " checked" : ""}> Töne auf die Textzeilen verteilen</label>` : ""}
+      ${M.kind === "gesang" && M.apply ? `<label class="toggle"><input type="checkbox" id="mReplace" checked> Bestehende Melodie der Zeilen ersetzen</label>` : ""}
+      <div class="sub" style="margin:0">${M.kind === "gesang" ? "Gesang gehört zu den Textzeilen dieses Teils." : "Wird als eigenes Memo bei diesem Teil gespeichert, unabhängig vom Text."}</div>
+      ${memoEdit.blob ? '<div><button class="btn sm" id="mPlayAll">▶ Aufnahme anhören</button></div>' : ""}`;
+    box.appendChild(head);
+    $("mName").value = M.name; $("mName").oninput = e => M.name = e.target.value;
+    $("mKind").onchange = e => { M.kind = e.target.value; M.apply = M.kind === "gesang"; renderMemoDlg(); };
+    const ap = $("mApply"); if (ap) ap.onchange = e => { M.apply = e.target.checked; renderMemoDlg(); };
+    const pa = $("mPlayAll"); if (pa) pa.onclick = () => playBlob(memoEdit.blob, pa);
+    const map = M.kind === "gesang" && M.apply;
+    M.phrases.forEach((p, k) => {
+      const el = document.createElement("div"); el.className = "phr" + (map && p.target === "skip" ? " off" : "");
+      const t0 = p.notes[0].start, t1 = p.notes[p.notes.length - 1].end;
+      const opts = sec.lines.map((l, i) => `<option value="${i}"${p.target === String(i) ? " selected" : ""}>Zeile ${i + 1}: ${esc((l.text || "(leer)").slice(0, 30))}</option>`).join("")
+        + `<option value="new"${p.target === "new" ? " selected" : ""}>Als neue Zeile</option><option value="skip"${p.target === "skip" ? " selected" : ""}>Nicht verteilen</option>`;
+      el.innerHTML = `<div class="phr-head"><b style="color:var(--text)">Phrase ${k + 1}</b> ${fmtT(t0)}–${fmtT(t1)}
+        ${memoEdit.blob ? '<button class="btn sm" data-p="orig">▶ Original</button>' : ""}<button class="btn sm" data-p="syn">▶ Töne</button>
+        ${map ? `<select>${opts}</select>` : ""}</div><div class="nchips"></div>`;
+      const chips = el.querySelector(".nchips");
+      p.notes.forEach((nt, j) => {
+        const d = nt.end - nt.start, c = document.createElement("span"); c.className = "nchip" + (d < .15 ? " short" : "");
+        c.innerHTML = `${noteName(nt.m)}${octave(nt.m)}<small>${d.toFixed(2)}s</small><button title="Ton entfernen">✕</button>`;
+        c.querySelector("button").onclick = () => { p.notes.splice(j, 1); if (!p.notes.length) M.phrases.splice(k, 1); renderMemoDlg(); };
+        chips.appendChild(c);
+      });
+      const sel = el.querySelector("select"); if (sel) sel.onchange = e => { p.target = e.target.value; renderMemoDlg(); };
+      const ob = el.querySelector('[data-p="orig"]'); if (ob) ob.onclick = () => playBlob(memoEdit.blob, ob, t0, t1);
+      const sb = el.querySelector('[data-p="syn"]'); sb.onclick = () => playTimed(p.notes, sb);
+      box.appendChild(el);
+    });
+  }
+  $("memoCancel").onclick = () => { stopAll(); $("memoDlg").classList.add("hidden"); memoEdit = null; };
+  $("memoOk").onclick = () => {
+    stopAll();
+    const { s, sec } = findSec(memoEdit.songId, memoEdit.secId); if (!sec) return;
+    const M = memoEdit.memo; M.name = (M.name || "").trim() || KIND[M.kind];
+    let used = 0;
+    if (M.kind === "gesang" && M.apply) {
+      const replace = $("mReplace") ? $("mReplace").checked : true, touched = new Set();
+      M.phrases.forEach(p => {
+        if (p.target === "skip" || !p.notes.length) return;
+        let line;
+        if (p.target === "new") { line = newLine(); sec.lines.push(line); p.target = String(sec.lines.length - 1); }
+        else line = sec.lines[+p.target];
+        if (!line) return;
+        if (replace && !touched.has(line)) line.notes = [];
+        touched.add(line); p.notes.forEach(n => line.notes.push(n.m)); used++;
+      });
+    }
+    const memo = { id: M.id, name: M.name, kind: M.kind, applied: M.kind === "gesang" && M.apply && used > 0, created: M.created, dur: M.dur, phrases: M.phrases.map(p => ({ notes: p.notes, target: p.target })) };
+    sec.memos = sec.memos || [];
+    const i = sec.memos.findIndex(x => x.id === memo.id); if (i >= 0) sec.memos[i] = memo; else sec.memos.push(memo);
+    if (memoEdit.isNew && memoEdit.blob) audioPut(memo.id, memoEdit.blob);
+    $("memoDlg").classList.add("hidden"); memoEdit = null;
+    persist(); afterNotesChanged(s.sections.indexOf(sec)); renderSections();
+    toast("Memo «" + memo.name + "» gespeichert" + (used ? " · Töne in " + used + " Zeile(n)" : ""));
+  };
+  function renderMemos(s, sec) {
+    const box = document.querySelector(`#secs .sec[data-id="${sec.id}"] .memos`); if (!box) return;
+    box.innerHTML = "";
+    (sec.memos || []).forEach(memo => {
+      const d = document.createElement("div"); d.className = "memo";
+      const preview = memo.phrases.map(p => p.notes.map(n => noteName(n.m) + octave(n.m)).join(" ")).join(" / ");
+      d.innerHTML = `<div class="memo-top"><span class="kpill ${memo.kind}">${esc(KIND[memo.kind] || memo.kind)}</span><b>${esc(memo.name)}</b>
+          <small>${fmtT(memo.dur || 0)} · ${memoNotes(memo)} Töne${memo.applied ? " · auf Zeilen verteilt" : ""}</small>
+          <span class="memo-acts"><button class="btn sm ghost" data-m="orig" hidden>▶ Aufnahme</button><button class="btn sm ghost" data-m="syn">▶ Töne</button><button class="btn sm ghost" data-m="edit">✎</button><button class="btn sm ghost" data-m="save" hidden title="Aufnahme als Datei speichern">⬇</button><button class="btn sm ghost" data-m="del">🗑</button></span></div>
+        ${preview ? `<div class="memo-notes">♪ ${esc(preview)}</div>` : ""}`;
+      audioGet(memo.id).then(b => { if (b) { d.querySelector('[data-m="orig"]').hidden = false; d.querySelector('[data-m="save"]').hidden = false; d._blob = b; } });
+      d.querySelector(".memo-acts").onclick = e => {
+        const btn = e.target.closest("[data-m]"); if (!btn) return; const a = btn.dataset.m;
+        if (a === "orig" && d._blob) playBlob(d._blob, btn);
+        if (a === "syn") playTimed(memo.phrases.flatMap(p => p.notes), btn);
+        if (a === "edit") editMemo(s, sec, memo);
+        if (a === "save" && d._blob) {
+          const ext = /mp4|aac|m4a/.test(d._blob.type) ? "m4a" : /ogg/.test(d._blob.type) ? "ogg" : "webm";
+          const link = document.createElement("a"); link.href = URL.createObjectURL(d._blob); link.download = (s.title + " - " + memo.name).replace(/[\\/:*?"<>|]/g, "") + "." + ext; link.click();
+        }
+        if (a === "del") {
+          if (!btn.dataset.c) { btn.dataset.c = 1; btn.textContent = "Löschen?"; setTimeout(() => { if (btn.isConnected) { btn.textContent = "🗑"; delete btn.dataset.c; } }, 2500); return; }
+          sec.memos = sec.memos.filter(x => x !== memo); audioDel(memo.id); persist(); renderSections(); toast("Memo gelöscht");
+        }
+      };
+      box.appendChild(d);
+    });
+  }
+  // Memo als Textzeile für den Austausch mit dem Partner / Claude
+  const memoLine = (m, fl) => `  Memo «${m.name}» (${KIND[m.kind] || "Sonstiges"}${m.applied ? "; auf Zeilen verteilt" : ""}): ` +
+    m.phrases.map(p => p.notes.map(n => intl(n.m, fl) + octave(n.m) + " " + (n.end - n.start).toFixed(2) + "s").join(", ")).join(" / ");
+  function parseMemoLine(l) {
+    const m = l.match(/^\s+Memo «(.*)» \(([^);]+)(;[^)]*)?\):\s*(.*)$/); if (!m) return null;
+    let t = 0;
+    const phrases = m[4].split(" / ").map(ph => {
+      const notes = ph.split(",").map(x => x.trim().match(/^(\S+)\s+([\d.]+)s/)).filter(Boolean).map(x => {
+        const midi = parseNote(x[1]); if (midi == null) return null; const d = +x[2], n = { m: midi, start: Math.round(t * 100) / 100, end: Math.round((t + d) * 100) / 100 }; t += d + .05; return n;
+      }).filter(Boolean);
+      t += .6; return { notes };
+    }).filter(p => p.notes.length);
+    return { id: uid(), name: m[1], kind: KIND_BY_LABEL[m[2].trim().toLowerCase()] || "andere", applied: /verteilt/.test(m[3] || ""), created: Date.now(), dur: Math.round(t * 10) / 10, phrases };
+  }
 
   // =============== Wiedergabe ===============
   const ac = () => { ctx = ctx || new (window.AudioContext || window.webkitAudioContext)(); ctx.resume(); return ctx; };
@@ -1223,18 +1500,43 @@ function sylSplit(word, lang) {
     voices.push(o, o2);
   }
   // Ein Knopf startet die Wiedergabe, derselbe Knopf (■) stoppt sie
-  let voices = [], playBtn = null, playTimer = null;
+  let voices = [], playBtn = null, playTimer = null, curAudio = null;
   function stopAll() {
     voices.forEach(o => { try { o.stop(); } catch {} }); voices = [];
+    if (curAudio) { try { curAudio.pause(); } catch {} curAudio = null; }
     clearTimeout(playTimer);
-    if (playBtn) { playBtn.textContent = "▶"; playBtn.classList.remove("primary"); playBtn = null; }
+    if (playBtn) { playBtn.innerHTML = playBtn._label; playBtn.classList.remove("primary"); playBtn = null; }
   }
-  function playMelody(notes, btn) {
+  function togglePlay(btn, fn) {
     if (btn && playBtn === btn) { stopAll(); return; }
     stopAll();
-    if (!notes.length) return; const c = ac(); const t0 = c.currentTime + .05; let t = t0;
-    notes.forEach(m => { playTone(m, .45, t); t += .42; });
-    if (btn) { playBtn = btn; btn.textContent = "■"; btn.classList.add("primary"); playTimer = setTimeout(() => { if (playBtn === btn) { btn.textContent = "▶"; btn.classList.remove("primary"); playBtn = null; voices = []; } }, (t - t0) * 1000 + 200); }
+    const dur = fn(); if (!dur || !btn) return;
+    playBtn = btn; btn._label = btn.innerHTML; btn.innerHTML = btn.innerHTML.replace("▶", "■"); btn.classList.add("primary");
+    playTimer = setTimeout(() => { if (playBtn === btn) { btn.innerHTML = btn._label; btn.classList.remove("primary"); playBtn = null; voices = []; } }, dur * 1000 + 200);
+  }
+  function playMelody(notes, btn) {
+    togglePlay(btn, () => {
+      if (!notes.length) return 0; const c = ac(); const t0 = c.currentTime + .05; let t = t0;
+      notes.forEach(m => { playTone(m, .45, t); t += .42; });
+      return t - t0;
+    });
+  }
+  // Töne mit Start/Ende (aus Memos)
+  function playTimed(notes, btn) {
+    togglePlay(btn, () => {
+      if (!notes.length) return 0; const c = ac(), t0 = c.currentTime + .05, base = notes[0].start;
+      notes.forEach(n => playTone(n.m, Math.max(.15, n.end - n.start), t0 + n.start - base, .3));
+      return notes[notes.length - 1].end - base + .1;
+    });
+  }
+  function playBlob(blob, btn, t0, t1) {
+    togglePlay(btn, () => {
+      const a = new Audio(URL.createObjectURL(blob)); curAudio = a;
+      a.onended = () => { if (curAudio === a) stopAll(); };
+      if (t0) a.currentTime = Math.max(0, t0 - .1);
+      a.play().catch(() => { toast("Abspielen nicht möglich"); stopAll(); });
+      return t1 != null ? (t1 - (t0 || 0) + .3) : 3600;
+    });
   }
   function playChord(c) {
     if (c.txt != null) return; const t = ac().currentTime;
@@ -1243,24 +1545,6 @@ function sylSplit(word, lang) {
 
   // =============== Start ===============
 
-  // =============== Tastatur: Melodie selbst eingeben ===============
-  let kbLow = 48;
-  function drawKb() {
-    const box = $("kb"); box.innerHTML = "";
-    const W = 100 / 14, whites = [0, 2, 4, 5, 7, 9, 11], blacks = { 1: 0, 3: 1, 6: 3, 8: 4, 10: 5 };
-    const hit = (m, k) => { playTone(m, .5); addNote(m, true); k.classList.add("hit"); setTimeout(() => k.classList.remove("hit"), 150); };
-    for (let o = 0; o < 2; o++) {
-      whites.forEach((pc, i) => { const m = kbLow + o * 12 + pc, k = document.createElement("div"); k.className = "w";
-        k.style.left = (o * 7 + i) * W + "%"; k.style.width = W + "%"; k.textContent = noteName(m) + (pc === 0 ? octave(m) : "");
-        k.onpointerdown = e => { e.preventDefault(); hit(m, k); }; box.appendChild(k); });
-      Object.entries(blacks).forEach(([pc, wi]) => { const m = kbLow + o * 12 + +pc, k = document.createElement("div"); k.className = "b";
-        k.style.left = ((o * 7 + wi + 1) * W - W * .3) + "%"; k.style.width = W * .6 + "%";
-        k.onpointerdown = e => { e.preventDefault(); hit(m, k); }; box.appendChild(k); });
-    }
-  }
-  $("kbBtn").onclick = () => { const c = $("kbCard"); c.hidden = !c.hidden; $("kbBtn").classList.toggle("primary", !c.hidden); if (!c.hidden) drawKb(); };
-  $("kbDown").onclick = () => { kbLow = Math.max(24, kbLow - 12); drawKb(); };
-  $("kbUp").onclick = () => { kbLow = Math.min(84, kbLow + 12); drawKb(); };
 
 
   refreshAll();
