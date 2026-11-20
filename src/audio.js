@@ -36,10 +36,10 @@
   }
   // Dauer des laufenden Tons festhalten, wenn er endet (für den Rhythmus)
   function endSeg(t) { if (seg && seg.rh && seg.rh.d == null) seg.rh.d = Math.max(.05, (t - seg.start) / 1000); }
-  function newSeg(vals, start) { endSeg(start); segCount++; seg = { vals, start, center: trimmedMean(vals), added: false, id: segCount }; cand = []; }
+  function newSeg(vals, start, onset) { if (onset && calRun) calRun.on.push(start / 1000); endSeg(start); segCount++; seg = { vals, start, center: trimmedMean(vals), added: false, id: segCount }; cand = []; }
   let inTol = 0;
   function segFeed(m, now) {
-    if (!seg) { newSeg([m], now); return; }
+    if (!seg) { newSeg([m], now, true); return; }
     if (Math.abs(m - seg.center) < SEG_TOL) {
       seg.vals.push(m); if (seg.vals.length > 60) seg.vals.shift();
       seg.center = trimmedMean(seg.vals);
@@ -67,9 +67,11 @@
   let visualOnly = false, lastAuto = null;   // true während einer Memo-Aufnahme: nur anzeigen, nicht mitschreiben
   async function start(useStream, vis) {
     $("err").textContent = ""; visualOnly = !!vis;
+    if (!useStream) Piano.setRec(true);
     try {
       stream = useStream || await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
     } catch (e) {
+      Piano.setRec(false);
       $("err").textContent = "Kein Mikrofonzugriff. Bitte im Browser erlauben und erneut versuchen. (" + (e.name || e) + ")"; return;
     }
     ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
@@ -80,24 +82,27 @@
     data = new Float32Array(analyser.fftSize);
     src.connect(analyser);
     running = true; seg = null; cand = [];
-    $("startBtn").textContent = vis ? "■ Memo stoppen" : "■ Stopp"; $("startBtn").classList.remove("primary"); $("startBtn").classList.toggle("recon", !!vis);
+    $("startBtn").textContent = vis === "cal" ? "■ Kalibrieren abbrechen" : vis ? "■ Memo stoppen" : "■ Stopp"; $("startBtn").classList.remove("primary"); $("startBtn").classList.toggle("recon", !!vis);
     dockState();
     metaEl.textContent = "Ich höre zu …";
     try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
     loop();
   }
   function stop() {
+    const metroTake = !!Metro.timer;
     endSeg(performance.now());
     running = false; cancelAnimationFrame(raf);
     stream?.getTracks().forEach(t => t.stop());
+    if (!recState) Piano.setRec(false);
     try { wakeLock?.release(); } catch {}
     $("startBtn").textContent = "🎤 Start"; $("startBtn").classList.add("primary"); $("startBtn").classList.remove("recon");
     const wasLive = !visualOnly;
     showIdle("Pausiert"); levelBar.style.width = "0"; visualOnly = false;
-    if (wasLive && settings.auto) setTimeout(() => autoTempo(false), 50);
+    if (wasLive && settings.auto && !metroTake) setTimeout(() => autoTempo(false), 50);   // mit Metronom ist das Tempo schon klar
+    if (calRun) calDone();
     dockState();
   }
-  $("startBtn").onclick = () => { if (recState) { recState.rec.stop(); return; } running ? stop() : start(); };
+  $("startBtn").onclick = () => { if (recState) { recState.rec.stop(); return; } if (calRun) { calRun.abort = true; stop(); return; } running ? stop() : start(); };
   document.addEventListener("visibilitychange", () => { if (document.hidden && running) stop(); });
 
   function loop() {
@@ -116,7 +121,7 @@
       if (seg && Math.abs(mRaw - seg.center) < SEG_TOL) {
         seg.peak = Math.max(seg.peak || 0, rms);
         if (rms < seg.peak * .7 && now - seg.start > 50) seg.dip = true;
-        else if (seg.dip && rms > seg.peak * .88) newSeg([mRaw], now);
+        else if (seg.dip && rms > seg.peak * .88) newSeg([mRaw], now, true);
       }
       segFeed(mRaw, now);
       let mShow, held;
@@ -137,12 +142,11 @@
           seg.added = true; seg.addedMidi = mm; lastAuto = mm; seg.ref = addNote(mm, true);
           // Einsatzzeit merken; läuft das Metronom, auch dessen Raster (eine «Eins»)
           const L = seg.ref.line; L.rh = L.rh || [];
-          const prev = L.rh[seg.ref.idx - 1];
-          if (seg.ref.idx > 0 && (!prev || seg.start / 1000 - prev.t > 4 || seg.start / 1000 < prev.t)) L.rh = [];   // neuer Durchgang: nicht mit altem Rhythmus mischen
-          // Einsatz um die Erkennungs-Verzögerung früher; mit Metronom zusätzlich die Ton-Ausgabe-Verzögerung
-          // (du singst auf den Klick, den du hörst – der kommt etwas nach dem geplanten Zeitpunkt)
-          const lat = .03 + (Metro.timer ? (ctx.outputLatency || .02) + (ctx.baseLatency || .01) : 0);
-          L.rh[seg.ref.idx] = seg.rh = { t: seg.start / 1000 - lat, d: null, a: Metro.timer ? Metro.anchor : null };
+          const prev = L.rh[seg.ref.idx - 1], a = Metro.timer ? Metro.anchor : null;
+          // neuer Durchgang (Pause > 4 s, anderes Metronom): nicht mit altem Rhythmus mischen
+          if (seg.ref.idx > 0 && (!prev || seg.start / 1000 - prev.t > 4 || seg.start / 1000 < prev.t || prev.a !== a)) L.rh = [];
+          // Einsatz um die Verzögerung früher: Erkennung; mit Metronom die ganze Kette Klick → Ohr → Stimme → Erkennung (kalibriert oder geschätzt)
+          L.rh[seg.ref.idx] = seg.rh = { t: seg.start / 1000 - liveLat(), d: null, a, b: a != null ? song().bpm : null };
         }
       } else if (seg && seg.added && seg.ref) {
         // früh notierter Ton: korrigieren, solange er sich noch einpendelt
