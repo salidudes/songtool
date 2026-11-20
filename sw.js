@@ -1,5 +1,5 @@
 // Offline-Cache: App funktioniert auch ohne Internet
-const CACHE = "songtool-v22";
+const CACHE = "songtool-v23";
 const FILES = ["./", "index.html", "manifest.json", "icon.svg", "icon-192.png", "icon-512.png", "piano/A1.mp3", "piano/C2.mp3", "piano/Ds2.mp3", "piano/Fs2.mp3", "piano/A2.mp3", "piano/C3.mp3", "piano/Ds3.mp3", "piano/Fs3.mp3", "piano/A3.mp3", "piano/C4.mp3", "piano/Ds4.mp3", "piano/Fs4.mp3", "piano/A4.mp3", "piano/C5.mp3", "piano/Ds5.mp3", "piano/Fs5.mp3", "piano/A5.mp3", "piano/C6.mp3"];
 
 self.addEventListener("install", e => {

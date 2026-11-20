@@ -65,6 +65,7 @@
   .tempo input { width: 58px; text-align: center; padding: 5px 4px; font-size: 15px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; }
   .tempo .tap.hit { border-color: var(--accent); color: var(--accent); }
   .metro-on { border-color: var(--accent) !important; color: var(--accent) !important; }
+  .warnbtn { border-color: var(--warn) !important; color: var(--warn) !important; }
   .focus { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; text-align: left; }
   .focus-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; }
   .focus-head b { color: var(--accent); }
@@ -245,7 +246,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v22</small></h1>
+    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v23</small></h1>
     <div class="settings">
       <button id="syncDot" title="Synchronisation">☁ aus</button>
       <button class="btn sm" id="settingsBtn" title="Einstellungen">⚙</button>
@@ -399,7 +400,7 @@
     <h3>Timing kalibrieren</h3>
     <div class="sub">Nimm dieselben Kopfhörer oder Lautsprecher wie beim Singen. Nach 4 Klicks zum Einzählen singst du 8× kurz «da» – genau auf den Klick.</div>
     <div id="calInfo" style="font-size:18px;font-weight:600;text-align:center;padding:18px 4px;min-height:28px"></div>
-    <div class="prow"><button class="btn" id="calClose" style="flex:1">Schliessen</button><button class="btn" id="calReset" style="flex:1">Wieder schätzen</button><button class="btn primary" id="calGo" style="flex:1">Start</button></div>
+    <div class="prow"><button class="btn" id="calClose" style="flex:1">Schliessen</button><button class="btn" id="calReset" style="flex:1">Messung löschen</button><button class="btn primary" id="calGo" style="flex:1">Start</button></div>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -476,6 +477,7 @@ function sylSplit(word, lang) {
   const settings = Object.assign({ naming: "de", acc: "auto", auto: true, smooth: true, showNotes: true }, load("st.settings", {}));
   if (!settings.v8) { settings.auto = true; settings.v8 = true; }   // ohne Notieren-Knopf: automatisch mitschreiben ist Standard
   const saveSettings = () => save("st.settings", settings);
+  if (settings.lat != null && settings.latV !== 2) { settings.lat = Math.max(0, Math.round((settings.lat - .045) * 1000) / 1000); settings.latV = 2; settings.latOld = true; saveSettings(); }
 
   const uid = () => Math.random().toString(36).slice(2, 10);
   const newLine = (text = "") => ({ text, notes: [], chords: {} });
@@ -500,12 +502,12 @@ function sylSplit(word, lang) {
   let curId = load("st.cur", songs[0].id);
   if (!songs.find(s => s.id === curId)) curId = songs[0].id;
   const song = () => songs.find(s => s.id === curId);
-  let saveT;
+  let saveT, liveSaving = false;   // beim Singen seltener speichern (Speichern kann kurz ruckeln)
   const saveNow = () => { clearTimeout(saveT); save("st.songs", songs); save("st.cur", curId); };
   // mark=false: nur Ansichtszustand (z.B. aktive Zeile) – zählt nicht als inhaltliche Änderung
   const persist = (mark = true) => {
     if (mark && song()) { song().updatedAt = Date.now(); scheduleSync(15000); }
-    clearTimeout(saveT); saveT = setTimeout(saveNow, 150);
+    clearTimeout(saveT); saveT = setTimeout(saveNow, liveSaving ? 1500 : 150);
   };
   const allLines = s => s.sections.flatMap(sec => sec.lines);
   function clampActive(s) {
@@ -1307,7 +1309,7 @@ function sylSplit(word, lang) {
   }
   // Dauer des laufenden Tons festhalten, wenn er endet (für den Rhythmus)
   function endSeg(t) { if (seg && seg.rh && seg.rh.d == null) seg.rh.d = Math.max(.05, (t - seg.start) / 1000); }
-  function newSeg(vals, start, onset) { if (onset && calRun) calRun.on.push(start / 1000); endSeg(start); segCount++; seg = { vals, start, center: trimmedMean(vals), added: false, id: segCount }; cand = []; }
+  function newSeg(vals, start, onset) { if (onset && calRun && !onsetNode) calRun.on.push(ctxAt(start) - lagNow()); endSeg(start); segCount++; seg = { vals, start, center: trimmedMean(vals), added: false, id: segCount }; cand = []; }
   let inTol = 0;
   function segFeed(m, now) {
     if (!seg) { newSeg([m], now, true); return; }
@@ -1326,6 +1328,45 @@ function sylSplit(word, lang) {
         if (spread < 0.4) newSeg(recent, cand[0].t);   // stabil genug → neuer Ton (sonst: noch im Gleiten)
       }
     }
+  }
+
+  // =============== Einsätze sample-genau (AudioWorklet, eigener Audio-Faden) ===============
+  // Misst, wann die Stimme lauter wird – unabhängig davon, ob die Seite gerade ruckelt. Zeiten in AudioContext-Zeit,
+  // also derselben Uhr wie die Metronom-Klicks. Vorher gefiltert: Klicks (hoch) und Rumpeln (tief) zählen nicht.
+  const ONSET_JS = `class O extends AudioWorkletProcessor{constructor(){super();this.s=0;this.h=new Float32Array(Math.ceil(.06*sampleRate/32));this.k=0;this.last=-1;this.rise=null}
+  process(ins){const x=ins[0]&&ins[0][0];if(!x)return true;const H=32,n=x.length,h=this.h;
+  for(let o=0;o<n;o+=H){let e=0;for(let i=o;i<o+H&&i<n;i++)e+=x[i]*x[i];e=Math.sqrt(e/H);
+  this.s+=(e>this.s?.5:.08)*(e-this.s);const t=currentTime+o/sampleRate;h[this.k++%h.length]=this.s;let f=1e9;for(let i=0;i<h.length;i++)if(h[i]<f)f=h[i];
+  if(this.s<=Math.max(.002,f*1.5))this.rise=t;
+  if(this.rise!=null&&this.s>.004&&this.s>f*2.2&&t-this.last>.07){this.last=t;this.port.postMessage(this.rise);this.rise=null}}
+  return true}}
+  registerProcessor("onsets",O)`;
+  let onsetNode = null, onsetMod = null, onsets = [];
+  async function onsetStart(src) {
+    try {
+      if (!ctx.audioWorklet) return;
+      if (!onsetMod) onsetMod = ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([ONSET_JS], { type: "application/javascript" })));
+      await onsetMod;
+      const f = (type, hz) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = hz; return b; };
+      const hp = f("highpass", 80), lp1 = f("lowpass", 1000), lp2 = f("lowpass", 1000);
+      onsetNode = new AudioWorkletNode(ctx, "onsets", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
+      onsetNode.port.onmessage = e => { onsets.push(e.data); if (onsets.length > 64) onsets.shift(); if (calRun) calRun.on.push(e.data); };
+      src.connect(hp); hp.connect(lp1); lp1.connect(lp2); lp2.connect(onsetNode); onsetNode.connect(ctx.destination);
+    } catch { onsetNode = null; }
+  }
+  function onsetStop() { if (onsetNode) { try { onsetNode.port.onmessage = null; onsetNode.disconnect(); } catch {} onsetNode = null; } }
+  // Bildschirm-Zeit → AudioContext-Zeit. currentTime springt in Blöcken: die kleinste Differenz ist die genaueste.
+  let clk = null;
+  function clkTick() { if (!ctx) return; const o = performance.now() / 1000 - ctx.currentTime; clk = clk == null || o - clk > .3 ? o : Math.min(o, clk + 2e-6); }
+  const ctxAt = ms => { clkTick(); return ms / 1000 - clk; };
+  // Einsatz eines erkannten Tons: der passende Lautstärke-Anstieg; ohne einen solchen (gebunden gesungen) die übliche Erkennungs-Verzögerung abziehen
+  const lagEst = []; let lastOn = -1;
+  const lagNow = () => lagEst.length >= 3 ? median(lagEst) : .045;
+  function noteOnset(startMs) {
+    const T = ctxAt(startMs), want = T - lagNow(); let best = null;
+    for (const t of onsets) if (t > T - .25 && t < T + .015 && t > lastOn + .05 && (best == null || Math.abs(t - want) < Math.abs(best - want))) best = t;
+    if (best == null) return want;
+    lagEst.push(T - best); if (lagEst.length > 15) lagEst.shift(); lastOn = best; return best;
   }
 
   // =============== Audio ===============
@@ -1348,11 +1389,12 @@ function sylSplit(word, lang) {
     ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
     await ctx.resume();
     const src = ctx.createMediaStreamSource(stream);
+    onsets = []; lastOn = -1; clkTick(); await onsetStart(src);
     analyser = ctx.createAnalyser();
     analyser.fftSize = ctx.sampleRate > 48000 ? 4096 : 2048;
     data = new Float32Array(analyser.fftSize);
     src.connect(analyser);
-    running = true; seg = null; cand = [];
+    running = true; liveSaving = true; seg = null; cand = [];
     $("startBtn").textContent = vis === "cal" ? "■ Kalibrieren abbrechen" : vis ? "■ Memo stoppen" : "■ Stopp"; $("startBtn").classList.remove("primary"); $("startBtn").classList.toggle("recon", !!vis);
     dockState();
     metaEl.textContent = "Ich höre zu …";
@@ -1362,8 +1404,8 @@ function sylSplit(word, lang) {
   function stop() {
     const metroTake = !!Metro.timer;
     endSeg(performance.now());
-    running = false; cancelAnimationFrame(raf);
-    stream?.getTracks().forEach(t => t.stop());
+    running = false; liveSaving = false; cancelAnimationFrame(raf); saveNow();
+    stream?.getTracks().forEach(t => t.stop()); onsetStop();
     if (!recState) Piano.setRec(false);
     try { wakeLock?.release(); } catch {}
     $("startBtn").textContent = "🎤 Start"; $("startBtn").classList.add("primary"); $("startBtn").classList.remove("recon");
@@ -1380,7 +1422,7 @@ function sylSplit(word, lang) {
     if (!running) return;
     analyser.getFloatTimeDomainData(data);
     const { f, rms } = detectPitch(data, ctx.sampleRate);
-    const now = performance.now();
+    const now = performance.now(); clkTick();
     levelBar.style.width = Math.max(0, Math.min(100, (20 * Math.log10(rms + 1e-9) + 60) / 60 * 100)) + "%";
 
     if (f > 0) {
@@ -1413,11 +1455,11 @@ function sylSplit(word, lang) {
           seg.added = true; seg.addedMidi = mm; lastAuto = mm; seg.ref = addNote(mm, true);
           // Einsatzzeit merken; läuft das Metronom, auch dessen Raster (eine «Eins»)
           const L = seg.ref.line; L.rh = L.rh || [];
-          const prev = L.rh[seg.ref.idx - 1], a = Metro.timer ? Metro.anchor : null;
+          // Einsatz in Metronom-Zeit; mit Metronom die gemessene Verzögerung Klick → Ohr → Stimme → Mikrofon abziehen
+          const a = Metro.timer ? Metro.t0 : null, t = noteOnset(seg.start) - (a != null ? latNow() : 0), prev = L.rh[seg.ref.idx - 1];
           // neuer Durchgang (Pause > 4 s, anderes Metronom): nicht mit altem Rhythmus mischen
-          if (seg.ref.idx > 0 && (!prev || seg.start / 1000 - prev.t > 4 || seg.start / 1000 < prev.t || prev.a !== a)) L.rh = [];
-          // Einsatz um die Verzögerung früher: Erkennung; mit Metronom die ganze Kette Klick → Ohr → Stimme → Erkennung (kalibriert oder geschätzt)
-          L.rh[seg.ref.idx] = seg.rh = { t: seg.start / 1000 - liveLat(), d: null, a, b: a != null ? song().bpm : null };
+          if (seg.ref.idx > 0 && (!prev || t - prev.t > 4 || t < prev.t || prev.a !== a)) L.rh = [];
+          L.rh[seg.ref.idx] = seg.rh = { t, d: null, a, b: a != null ? song().bpm : null };
         }
       } else if (seg && seg.added && seg.ref) {
         // früh notierter Ton: korrigieren, solange er sich noch einpendelt
@@ -1585,7 +1627,7 @@ function sylSplit(word, lang) {
   function paintRecBtn() {
     document.querySelectorAll("#secs .recbtn").forEach(b => { b.classList.remove("on"); b.textContent = "🎙"; });
     if (!recState) return;
-    if (Metro.timer && song().bpm) recState.metro = { bpm: song().bpm, a: Metro.anchor };
+    if (Metro.timer && song().bpm) recState.metro = { bpm: song().bpm, t0: Metro.t0 };
     const b = document.querySelector(`#secs .sec[data-id="${recState.secId}"] .recbtn`);
     if (b) { b.classList.add("on"); b.textContent = "■ " + fmtT((Date.now() - recState.t0) / 1000); }
     const fb = $("focusRec"); if (fb && song().sections[song().active.s]?.id === recState.secId) { fb.classList.add("recon"); fb.textContent = "■ " + fmtT((Date.now() - recState.t0) / 1000); }
@@ -1611,8 +1653,8 @@ function sylSplit(word, lang) {
       const st = recState; recState = null; if (running) stop(); Piano.setRec(false); paintRecBtn(); dockState(); renderFocus();
       const blob = new Blob(chunks, { type: rec.mimeType || mime || "audio/webm" });
       if (blob.size < 2000) { toast("Aufnahme zu kurz"); return; }
-      const lat = memoLat();   // du singst auf den gehörten Klick
-      newMemoFromBlob(st.songId, st.secId, blob, st.metro ? { bpm: st.metro.bpm, a: st.metro.a - st.p0 + lat } : null);
+      // erste «Eins» relativ zum Aufnahmebeginn, plus gemessene Verzögerung (du singst auf den gehörten Klick)
+      newMemoFromBlob(st.songId, st.secId, blob, st.metro ? { bpm: st.metro.bpm, a: st.metro.t0 - ctxAt(st.p0 * 1000) + latNow() } : null);
     };
     rec.start(250);
     recState = { rec, songId: s.id, secId: sec.id, t0: Date.now(), p0: performance.now() / 1000, tick: setInterval(paintRecBtn, 500) };
@@ -1819,11 +1861,12 @@ function sylSplit(word, lang) {
     if (m && METERS[m.sig] && Array.isArray(m.acc) && m.acc.length === METERS[m.sig].length) return { sig: m.sig, beats: m.acc.length, acc: m.acc, sub: m.sub || 1 };
     return { sig: "4/4", beats: 4, acc: METERS["4/4"].slice(), sub: (m && m.sub) || 1 };
   }
-  const CLICK = { 3: [1800, .26], 2: [1450, .18], 1: [1100, .11] };
+  // Klick-Töne liegen über jeder Singstimme (> 1200 Hz): kommen sie übers Mikrofon zurück, hält sie die App nicht für Gesang
+  const CLICK = { 3: [2400, .34], 2: [2000, .25], 1: [1700, .17] };
   function clickAt(t, level, quiet) {
     const c = ac(), o = c.createOscillator(), g = c.createGain();
-    const [f, v] = quiet ? [900, .05] : CLICK[level === true ? 3 : level === false ? 1 : level] || CLICK[1];
-    o.type = "square"; o.frequency.value = f;
+    const [f, v] = quiet ? [3000, .07] : CLICK[level === true ? 3 : level === false ? 1 : level] || CLICK[1];
+    o.type = "triangle"; o.frequency.value = f;
     g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + .002); g.gain.exponentialRampToValueAtTime(.001, t + (quiet ? .025 : .045));
     o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + .06); return o;
   }
@@ -1836,8 +1879,7 @@ function sylSplit(word, lang) {
   }
   function metroStart() {
     if (Metro.timer) return;
-    const c = ac(); Metro.next = c.currentTime + .1; Metro.n = 0;
-    Metro.anchor = performance.now() / 1000 + (Metro.next - c.currentTime);
+    const c = ac(); Metro.next = c.currentTime + .1; Metro.n = 0; Metro.t0 = Metro.next;   // erste «Eins», in derselben Uhr wie die Einsätze
     Metro.timer = setInterval(() => {
       const bpm = song().bpm; if (!bpm) return;
       const M = meterOf(song());
@@ -1857,10 +1899,10 @@ function sylSplit(word, lang) {
     const s = song();
     box.innerHTML = `Tempo <button class="btn sm" data-t="-">−</button><input type="number" inputmode="numeric" min="40" max="240" placeholder="–" value="${s.bpm || ""}"> BPM <button class="btn sm" data-t="+">＋</button>
       <button class="btn sm tap" data-t="tap" title="Im Takt antippen">Tap</button><button class="btn sm" data-t="half" title="Halbes Tempo">½</button><button class="btn sm" data-t="double" title="Doppeltes Tempo">×2</button>
-      <label class="toggle sm" title="Raster, auf das gesungene Töne beim Abspielen gezogen werden">Raster <select data-t="grid"><option value="8"${(s.grid || "8") === "8" ? " selected" : ""}>Achtel</option><option value="16"${s.grid === "16" ? " selected" : ""}>Sechzehntel</option><option value="off"${s.grid === "off" ? " selected" : ""}>aus (wie gesungen)</option></select></label>
+      <label class="toggle sm" title="Raster, auf das gesungene Töne beim Abspielen gezogen werden">Raster <select data-t="grid"><option value="8"${(s.grid || "8") === "8" ? " selected" : ""}>Achtel</option><option value="16"${s.grid === "16" || s.grid === "off" ? " selected" : ""}>Sechzehntel</option></select></label>
       <label class="toggle sm" title="Tempo aus deinen Aufnahmen erkennen, solange du keins von Hand eingibst"><input type="checkbox" data-t="auto"${s.bpmAuto !== false ? " checked" : ""}> automatisch</label>
       ${withMetro ? metroControls(s) : ""}
-      ${withMetro ? `<button class="btn sm${Metro.on ? " metro-on" : ""}" data-t="metro" title="Metronom beim Singen, Aufnehmen und Abspielen">♩ Metronom ${Metro.on ? "an" : "aus"}</button><button class="btn sm ghost" data-t="cal" title="Verzögerung von Kopfhörer und Mikrofon messen – damit der Gesang genau im Takt landet">⏱ Timing${settings.lat != null ? " ✓" : ""}</button>` : ""}`;
+      ${withMetro ? `<button class="btn sm${Metro.on ? " metro-on" : ""}" data-t="metro" title="Metronom beim Singen, Aufnehmen und Abspielen">♩ Metronom ${Metro.on ? "an" : "aus"}</button><button class="btn sm${settings.lat == null || settings.latOld ? " warnbtn" : " ghost"}" data-t="cal" title="Verzögerung von Lautsprecher/Kopfhörer und Mikrofon messen – damit der Gesang genau im Takt landet">⏱ Timing${settings.lat == null ? " messen" : settings.latOld ? " neu messen" : " ✓"}</button>` : ""}`;
     const inp = box.querySelector('input[type="number"]');
     inp.onchange = () => setBpm(+inp.value || null);
     box.querySelector('[data-t="grid"]').onchange = e => { song().grid = e.target.value; persist(); renderTempo(); };
@@ -1898,17 +1940,16 @@ function sylSplit(word, lang) {
   }
   // =============== Timing kalibrieren ===============
   // Verzögerung Klick → Ohr → Stimme → Erkennung: gemessen (settings.lat) oder aus den Gerätewerten geschätzt
-  const latGuess = () => .03 + (ac().outputLatency || .02) + (ac().baseLatency || .01);
-  const liveLat = () => !Metro.timer ? .03 : settings.lat != null ? settings.lat : latGuess();
-  const memoLat = () => settings.lat != null ? Math.max(0, settings.lat - .03) : latGuess() - .01;   // Memo: ohne Erkennungs-Verzögerung
+  // (Die Werte, die der Browser selbst angibt, lagen weit daneben – deshalb nur noch die eigene Messung.)
+  const latNow = () => settings.lat || 0;
   let calRun = null, calRes = null;
   function calStatus() {
     const el = $("calStatus"); if (!el) return;
-    el.textContent = settings.lat != null ? "Verzögerung " + Math.round(settings.lat * 1000) + " ms (gemessen)" : "Verzögerung wird geschätzt (≈ " + Math.round(latGuess() * 1000) + " ms)";
+    el.textContent = settings.lat == null ? "Noch nicht gemessen" : "Verzögerung " + Math.round(settings.lat * 1000) + " ms" + (settings.latOld ? " (umgerechnet – bitte neu messen)" : " (gemessen)");
   }
   function calShow(msg) {
     $("calDlg").classList.remove("hidden");
-    $("calInfo").textContent = msg != null ? msg : settings.lat != null ? "Bisher gemessen: " + Math.round(settings.lat * 1000) + " ms" : "Bereit?";
+    $("calInfo").textContent = msg != null ? msg : settings.latOld ? "Die Messung ist jetzt genauer – bitte einmal neu messen" : settings.lat != null ? "Bisher gemessen: " + Math.round(settings.lat * 1000) + " ms" : "Bereit?";
     $("calGo").textContent = calRes ? "Übernehmen" : calRun ? "…" : "Start"; $("calGo").disabled = !!calRun;
     $("calReset").style.display = settings.lat == null || calRes != null ? "none" : "";
     $("calClose").textContent = calRes ? "Nochmals" : "Schliessen";
@@ -1916,12 +1957,12 @@ function sylSplit(word, lang) {
   async function calStart() {
     if (running || recState) { toast("Erst die laufende Aufnahme stoppen"); return; }
     stopAll(); metroStop(); calRes = null;
-    const bpm = 90, beat = 60 / bpm, N = 12;
+    const bpm = 80, beat = 60 / bpm, N = 12;
     calRun = { on: [], clicks: [], abort: false }; calShow("Mikrofon wird gestartet …");
     await start(null, "cal");
     if (!running) { calRun = null; calShow("Kein Mikrofon – bitte im Browser erlauben"); return; }
-    const c = ac(), t0 = c.currentTime + .8, p0 = performance.now() / 1000 + (t0 - c.currentTime);
-    for (let k = 0; k < N; k++) { voices.push(clickAt(t0 + k * beat, k % 4 === 0 ? 3 : 1)); if (k >= 4) calRun.clicks.push(p0 + k * beat); }
+    const c = ac(), t0 = c.currentTime + .8;   // Klicks und Einsätze in derselben Uhr (AudioContext)
+    for (let k = 0; k < N; k++) { voices.push(clickAt(t0 + k * beat, k % 4 === 0 ? 3 : 1)); if (k >= 4) calRun.clicks.push(t0 + k * beat); }
     calRun.tick = setInterval(() => { const k = Math.floor((ac().currentTime - t0) / beat); $("calInfo").textContent = k < 0 ? "Achtung …" : k < 4 ? "Einzählen: " + (k + 1) : k < N ? "«da» – " + (k - 3) + " von 8" : "Wird ausgewertet …"; }, 50);
     calRun.timer = setTimeout(() => { if (running) stop(); }, (t0 - c.currentTime + N * beat + .6) * 1000);
   }
@@ -1929,22 +1970,22 @@ function sylSplit(word, lang) {
     const r = calRun; calRun = null; clearInterval(r.tick); clearTimeout(r.timer); stopAll();
     if (r.abort) { calShow("Abgebrochen"); return; }
     // pro Klick der Einsatz, der am besten zu den anderen passt
-    const near = c => r.on.filter(t => t > c - .2 && t < c + .45).map(t => t - c);
+    const near = c => r.on.filter(t => t > c - .12 && t < c + .6).map(t => t - c);
     let d = r.clicks.map(c => { const n = near(c); return n.length ? Math.min(...n) : null; }).filter(x => x != null);
     if (d.length >= 5) { const m0 = median(d); d = r.clicks.map(c => { const n = near(c); return n.length ? n.reduce((a, x) => Math.abs(x - m0) < Math.abs(a - m0) ? x : a) : null; }).filter(x => x != null); }
     if (d.length < 5) { calShow("Nur " + d.length + " von 8 «da» erkannt – bitte nochmals, etwas lauter und kurz abgesetzt"); return; }
     const m = median(d), spread = median(d.map(x => Math.abs(x - m)));
-    if (m < -.08 || m > .5) { calShow("Ergebnis unplausibel (" + Math.round(m * 1000) + " ms) – bitte nochmals"); return; }
+    if (m < -.08 || m > .6) { calShow("Ergebnis unplausibel (" + Math.round(m * 1000) + " ms) – bitte nochmals"); return; }
     calRes = Math.round(m * 1000) / 1000;
     calShow(Math.round(m * 1000) + " ms Verzögerung · " + d.length + " von 8 erkannt · Streuung ±" + Math.round(spread * 1000) + " ms" + (spread > .04 ? " (etwas unruhig – evtl. nochmals)" : ""));
   }
   $("calOpen").onclick = () => { calRes = null; calShow(); };
   $("calGo").onclick = () => {
-    if (calRes != null) { settings.lat = calRes; saveSettings(); calRes = null; $("calDlg").classList.add("hidden"); calStatus(); toast("Timing gespeichert – gilt für neue Aufnahmen mit Metronom"); return; }
+    if (calRes != null) { settings.lat = calRes; settings.latV = 2; delete settings.latOld; saveSettings(); renderTempo(); calRes = null; $("calDlg").classList.add("hidden"); calStatus(); toast("Timing gespeichert – gilt für neue Aufnahmen mit Metronom"); return; }
     calStart();
   };
   $("calClose").onclick = () => { if (calRes != null) { calRes = null; calStart(); return; } if (calRun) { calRun.abort = true; stop(); } $("calDlg").classList.add("hidden"); };
-  $("calReset").onclick = () => { delete settings.lat; saveSettings(); calStatus(); calShow("Verzögerung wird wieder geschätzt"); };
+  $("calReset").onclick = () => { delete settings.lat; delete settings.latOld; saveSettings(); calStatus(); renderTempo(); calShow("Messung gelöscht"); };
   const ACC_SYM = ["·", "○", "●", "▲"];
   function metroControls(s) {
     const M = meterOf(s);
@@ -2144,41 +2185,39 @@ function sylSplit(word, lang) {
   // ---- Zeilen und Teile mit Akkorden + Melodie auf dem Klavier ----
   const chordEvName = c => c.txt != null ? { name: c.txt, german: settings.naming === "de" } : { name: intl(c.r, false) + SUF[c.q], german: false };
   // Töne aufs Raster ziehen. items: [{t, d}] in Sekunden (im Aufnahme-Tempo bpm); anchor: Zeit einer «Eins» (Metronom) oder null
-  // grid: "8" = Achtel, "16" = Sechzehntel, "off" = wie gesungen
-  // → [{p, l}] in Sechzehnteln ab Takt- bzw. Schlaganfang (bei "off" mit Kommastellen)
-  function quantize(items, bpm, anchor, grid = "8", bpb = 4, spb = 4) {
+  // grid: "8" = Achtel, sonst Sechzehntel → [{p, l}] in Sechzehnteln ab Takt- bzw. Schlaganfang
+  // Wie weit du durchgehend vor/nach dem Klick singst (dein Gefühl), in Sekunden – knapp unter einem halben Rasterschritt.
+  // Grob über den Kreis-Mittelwert (verträgt Ausreisser über die Rastergrenze), fein über den Median.
+  function feelShift(ts, anchor, g) {
+    if (ts.length < 4) return 0;
+    let cx = 0, cy = 0; ts.forEach(t => { const w = 2 * Math.PI * (t - anchor) / g; cx += Math.cos(w); cy += Math.sin(w); });
+    const o0 = Math.atan2(cy, cx) / (2 * Math.PI);
+    const r = ts.map(t => { const v = (t - anchor) / g - o0; return v - Math.round(v); }).sort((a, b) => a - b);
+    return Math.max(-.45, Math.min(.45, o0 + r[r.length >> 1])) * g;
+  }
+  // shift: schon bekannte Verschiebung (aus dem ganzen Durchgang) oder null = aus diesen Tönen schätzen
+  function quantize(items, bpm, anchor, grid = "8", bpb = 4, spb = 4, shift = null) {
     if (!items.length) return [];
     const beat = 60 / bpm, g16 = beat / spb;
     const per = grid === "8" ? Math.max(1, spb / 2) : spb, g = beat / per, f = spb / per;
     let ref = anchor;
-    if (ref != null && items.length >= 4) {
-      // gleichbleibend zu früh/zu spät gegenüber dem Klick (Verzögerung im Gerät): Mittel der Abweichungen vom Raster herausrechnen
-      let cx = 0, cy = 0; items.forEach(it => { const w = 2 * Math.PI * (it.t - ref) / g; cx += Math.cos(w); cy += Math.sin(w); });
-      const R = Math.hypot(cx, cy) / items.length, off = Math.atan2(cy, cx) / (2 * Math.PI);
-      if (R > .4 && Math.abs(off) > .06) ref += off * g;
-    }
+    if (ref != null) ref += shift != null ? shift : feelShift(items.map(it => it.t), anchor, g);
     if (ref == null) {   // ohne Metronom: das Raster suchen, in das die Einsätze am besten passen
       let bc = 1e9; const b = items[0].t;
       for (let k = 0; k < 24; k++) { const ph = b - k * g / 24; let c = 0; items.forEach(it => { const r = (it.t - ph) / g; c += Math.abs(r - Math.round(r)); }); if (c < bc) { bc = c; ref = ph; } }
     }
-    const barU = bpb * spb, gap = i => i + 1 < items.length ? items[i + 1].t - items[i].t : 9;
-    // gebunden gesungen (Ton klingt fast bis zum nächsten) → ohne Lücke
-    const legato = i => i + 1 < items.length && items[i].d != null && items[i].d >= gap(i) * .75;
-    if (grid === "off") {   // nicht einrasten – nur ab Takt-/Schlaganfang ausrichten
-      const x = items.map(it => (it.t - ref) / g16);
-      const st = anchor != null ? Math.floor(x[0] / barU) * barU : x[0];
-      return items.map((it, i) => ({ p: x[i] - st, l: legato(i) ? x[i + 1] - x[i] : Math.max(.6, Math.min((it.d || beat / 2) / g16, gap(i) / g16)) }));
-    }
-    const pos = items.map(it => Math.round((it.t - ref) / g) * f);
-    for (let i = 1; i < pos.length; i++) if (pos[i] <= pos[i - 1]) {
-      // zwei Töne auf demselben Platz: nur diesen Ton auf die nächste Sechzehntel – keine Kettenreaktion
-      pos[i] = Math.max(pos[i - 1] + 1, Math.round((items[i].t - ref) / g16));
-    }
-    const start = anchor != null ? Math.floor(pos[0] / barU) * barU : Math.floor(pos[0] / spb) * spb;   // ab Takt- bzw. Schlaganfang
+    // im Sechzehntel-Raster mit Metronom: knappe Fälle gehen an Schlag oder Achtel statt an eine «krumme» Sechzehntel
+    const cost = c => c % spb === 0 ? 0 : spb === 4 && c % 2 === 0 ? .04 : .08;
+    const snap = x => f !== 1 ? Math.round(x / f) * f : anchor == null ? Math.round(x) : [Math.floor(x), Math.ceil(x)].reduce((a, c) => Math.abs(x - c) + cost(c) < Math.abs(x - a) + cost(a) ? c : a);
+    const x = items.map(it => (it.t - ref) / g16), pos = x.map(snap);
+    for (let i = 1; i < pos.length; i++) if (pos[i] <= pos[i - 1]) pos[i] = Math.max(pos[i - 1] + 1, Math.round(x[i]));   // zwei Töne auf einem Platz: nur dieser eine Sechzehntel weiter
+    const barU = bpb * spb, start = anchor != null ? Math.floor(pos[0] / barU) * barU : Math.floor(pos[0] / spb) * spb;   // ab Takt- bzw. Schlaganfang
     return items.map((it, i) => {
-      let len = Math.max(f, Math.round((it.d || g) / g) * f);
-      if (i + 1 < items.length) len = legato(i) ? pos[i + 1] - pos[i] : Math.max(1, Math.min(len, pos[i + 1] - pos[i]));
-      return { p: pos[i] - start, l: len };
+      if (i + 1 >= items.length) return { p: pos[i] - start, l: Math.max(f, Math.round((it.d || g) / g) * f) };
+      const gap = pos[i + 1] - pos[i];
+      // gebunden gesungen (klingt fast bis zum nächsten Ton) → ohne Lücke
+      const legato = it.d != null && it.d >= (items[i + 1].t - it.t) * .75;
+      return { p: pos[i] - start, l: legato ? gap : Math.max(1, Math.min(gap, Math.max(f, Math.round((it.d || g) / g) * f))) };
     });
   }
   // Rhythmus nur verwenden, wenn er aus einem Durchgang stammt (keine Rücksprünge, keine Lücken > 4 s, gleiches Metronom)
@@ -2193,22 +2232,27 @@ function sylSplit(word, lang) {
   const spbOf = s => /\/8$/.test(meterOf(s).sig) ? 2 : 4;
   const hasQ = line => Array.isArray(line.q) && line.notes.length > 0 && line.q.length === line.notes.length;
   // gesungener Rhythmus, im Tempo ausgewertet, in dem er aufgenommen wurde (Metronom) – spätere Tempo-Änderungen verschieben nichts
-  function rhQ(s, line, grid) {
-    const rh = line.rh.slice(0, line.notes.length);
-    return quantize(rh, rh[0].b || s.bpm || 100, rh[0].a, grid, meterOf(s).beats, spbOf(s));
+  function rhQ(s, line) {
+    const rh = line.rh.slice(0, line.notes.length), a = rh[0].a, bpm = rh[0].b || s.bpm || 100, grid = s.grid === "16" || s.grid === "off" ? "16" : "8";
+    let shift = null;
+    if (a != null) {   // Gefühl aus dem ganzen Durchgang (alle Zeilen mit demselben Metronom) – viel verlässlicher als aus einer Zeile
+      const ts = []; s.sections.forEach(sec => sec.lines.forEach(l => { if (rhOk(l) && l.rh[0].a === a) l.rh.slice(0, l.notes.length).forEach(x => ts.push(x.t)); }));
+      shift = feelShift(ts, a, 60 / bpm / (grid === "8" ? Math.max(1, spbOf(s) / 2) : spbOf(s)));
+    }
+    return quantize(rh, bpm, a, grid, meterOf(s).beats, spbOf(s), shift);
   }
   // Rhythmus einer Zeile in Sechzehnteln ({p: Position ab Taktanfang, l: Länge}): von Hand bearbeitet oder aus dem Gesang
   function lineQ(s, line) {
     const n = line.notes.length; if (!n) return [];
     if (hasQ(line)) return line.q;
-    if (rhOk(line)) return rhQ(s, line, s.grid === "16" || s.grid === "off" ? "16" : "8");
+    if (rhOk(line)) return rhQ(s, line);
     const st = Math.max(1, spbOf(s) / 2); return line.notes.map((_, i) => ({ p: i * st, l: st }));   // ohne Rhythmus: gleichmässige Achtel
   }
   function lineEvents(s, line, t0 = 0) {
     const sung = !hasQ(line) && rhOk(line) && (s.bpm || line.rh[0].b);
     if (hasQ(line) || sung) {   // im Taktraster: von Hand bearbeitet oder gesungen
-      const g16 = 60 / (s.bpm || line.rh[0].b || 100) / spbOf(s), ev = []; let ni = 0;
-      const q = sung && s.grid === "off" ? rhQ(s, line, "off") : lineQ(s, line);
+      const g16 = 60 / (s.bpm || (line.rh && line.rh[0] && line.rh[0].b) || 100) / spbOf(s), ev = []; let ni = 0;
+      const q = lineQ(s, line);
       units(line, s.lang).forEach((u, i) => u.notes.forEach((m, k) => { const z = q[ni++]; if (z) ev.push({ t: t0 + z.p * g16, dur: z.l * g16, melody: [m], chord: k === 0 && line.chords[i] ? chordEvName(line.chords[i]) : null }); }));
       return { ev, t: ev.length ? Math.max(...ev.map(e => e.t + e.dur)) : t0, bar: true };
     }
@@ -2221,13 +2265,18 @@ function sylSplit(word, lang) {
     return { ev, t };
   }
   function sectionEvents(s, sec) {
-    let ev = [], t = 0;
+    let ev = [], end = 0, first = true;
     const beat = s.bpm ? 60 / s.bpm : 0;
     sec.lines.filter(l => l.text.trim() || l.notes.length).forEach(l => {
-      const r = lineEvents(s, l, t); ev = ev.concat(r.ev);
-      // mit Tempo: nächste Zeile auf dem nächsten Schlag – bei echtem Rhythmus auf dem nächsten Takt
-      const bar = meterOf(s).beats * (beat || 60 / ((l.rh && l.rh[0] && l.rh[0].b) || 100));
-      t = r.bar ? Math.ceil((r.t + .01) / bar) * bar : beat ? Math.ceil((r.t + beat * .5) / beat) * beat : r.t + .35;
+      const r = lineEvents(s, l, 0); if (!r.ev.length) return;
+      let off;
+      if (r.bar) {
+        // im Taktraster: so früh wie möglich auf einen Taktanfang – ein Auftakt darf in den letzten Takt der Zeile davor
+        const bar = meterOf(s).beats * (beat || 60 / ((l.rh && l.rh[0] && l.rh[0].b) || 100)), f0 = Math.min(...r.ev.map(e => e.t));
+        off = first ? 0 : Math.max(0, Math.ceil((end - f0) / bar - 1e-6)) * bar;
+      } else off = first ? 0 : beat ? Math.ceil((end + beat * .5) / beat - 1e-6) * beat : end + .35;   // ohne Rhythmus: nächster Schlag
+      r.ev.forEach(e => { e.t += off; ev.push(e); });
+      end = Math.max(end, r.t + off); first = false;
     });
     return ev;
   }

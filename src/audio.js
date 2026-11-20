@@ -36,7 +36,7 @@
   }
   // Dauer des laufenden Tons festhalten, wenn er endet (für den Rhythmus)
   function endSeg(t) { if (seg && seg.rh && seg.rh.d == null) seg.rh.d = Math.max(.05, (t - seg.start) / 1000); }
-  function newSeg(vals, start, onset) { if (onset && calRun) calRun.on.push(start / 1000); endSeg(start); segCount++; seg = { vals, start, center: trimmedMean(vals), added: false, id: segCount }; cand = []; }
+  function newSeg(vals, start, onset) { if (onset && calRun && !onsetNode) calRun.on.push(ctxAt(start) - lagNow()); endSeg(start); segCount++; seg = { vals, start, center: trimmedMean(vals), added: false, id: segCount }; cand = []; }
   let inTol = 0;
   function segFeed(m, now) {
     if (!seg) { newSeg([m], now, true); return; }
@@ -55,6 +55,45 @@
         if (spread < 0.4) newSeg(recent, cand[0].t);   // stabil genug → neuer Ton (sonst: noch im Gleiten)
       }
     }
+  }
+
+  // =============== Einsätze sample-genau (AudioWorklet, eigener Audio-Faden) ===============
+  // Misst, wann die Stimme lauter wird – unabhängig davon, ob die Seite gerade ruckelt. Zeiten in AudioContext-Zeit,
+  // also derselben Uhr wie die Metronom-Klicks. Vorher gefiltert: Klicks (hoch) und Rumpeln (tief) zählen nicht.
+  const ONSET_JS = `class O extends AudioWorkletProcessor{constructor(){super();this.s=0;this.h=new Float32Array(Math.ceil(.06*sampleRate/32));this.k=0;this.last=-1;this.rise=null}
+  process(ins){const x=ins[0]&&ins[0][0];if(!x)return true;const H=32,n=x.length,h=this.h;
+  for(let o=0;o<n;o+=H){let e=0;for(let i=o;i<o+H&&i<n;i++)e+=x[i]*x[i];e=Math.sqrt(e/H);
+  this.s+=(e>this.s?.5:.08)*(e-this.s);const t=currentTime+o/sampleRate;h[this.k++%h.length]=this.s;let f=1e9;for(let i=0;i<h.length;i++)if(h[i]<f)f=h[i];
+  if(this.s<=Math.max(.002,f*1.5))this.rise=t;
+  if(this.rise!=null&&this.s>.004&&this.s>f*2.2&&t-this.last>.07){this.last=t;this.port.postMessage(this.rise);this.rise=null}}
+  return true}}
+  registerProcessor("onsets",O)`;
+  let onsetNode = null, onsetMod = null, onsets = [];
+  async function onsetStart(src) {
+    try {
+      if (!ctx.audioWorklet) return;
+      if (!onsetMod) onsetMod = ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([ONSET_JS], { type: "application/javascript" })));
+      await onsetMod;
+      const f = (type, hz) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = hz; return b; };
+      const hp = f("highpass", 80), lp1 = f("lowpass", 1000), lp2 = f("lowpass", 1000);
+      onsetNode = new AudioWorkletNode(ctx, "onsets", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
+      onsetNode.port.onmessage = e => { onsets.push(e.data); if (onsets.length > 64) onsets.shift(); if (calRun) calRun.on.push(e.data); };
+      src.connect(hp); hp.connect(lp1); lp1.connect(lp2); lp2.connect(onsetNode); onsetNode.connect(ctx.destination);
+    } catch { onsetNode = null; }
+  }
+  function onsetStop() { if (onsetNode) { try { onsetNode.port.onmessage = null; onsetNode.disconnect(); } catch {} onsetNode = null; } }
+  // Bildschirm-Zeit → AudioContext-Zeit. currentTime springt in Blöcken: die kleinste Differenz ist die genaueste.
+  let clk = null;
+  function clkTick() { if (!ctx) return; const o = performance.now() / 1000 - ctx.currentTime; clk = clk == null || o - clk > .3 ? o : Math.min(o, clk + 2e-6); }
+  const ctxAt = ms => { clkTick(); return ms / 1000 - clk; };
+  // Einsatz eines erkannten Tons: der passende Lautstärke-Anstieg; ohne einen solchen (gebunden gesungen) die übliche Erkennungs-Verzögerung abziehen
+  const lagEst = []; let lastOn = -1;
+  const lagNow = () => lagEst.length >= 3 ? median(lagEst) : .045;
+  function noteOnset(startMs) {
+    const T = ctxAt(startMs), want = T - lagNow(); let best = null;
+    for (const t of onsets) if (t > T - .25 && t < T + .015 && t > lastOn + .05 && (best == null || Math.abs(t - want) < Math.abs(best - want))) best = t;
+    if (best == null) return want;
+    lagEst.push(T - best); if (lagEst.length > 15) lagEst.shift(); lastOn = best; return best;
   }
 
   // =============== Audio ===============
@@ -77,11 +116,12 @@
     ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
     await ctx.resume();
     const src = ctx.createMediaStreamSource(stream);
+    onsets = []; lastOn = -1; clkTick(); await onsetStart(src);
     analyser = ctx.createAnalyser();
     analyser.fftSize = ctx.sampleRate > 48000 ? 4096 : 2048;
     data = new Float32Array(analyser.fftSize);
     src.connect(analyser);
-    running = true; seg = null; cand = [];
+    running = true; liveSaving = true; seg = null; cand = [];
     $("startBtn").textContent = vis === "cal" ? "■ Kalibrieren abbrechen" : vis ? "■ Memo stoppen" : "■ Stopp"; $("startBtn").classList.remove("primary"); $("startBtn").classList.toggle("recon", !!vis);
     dockState();
     metaEl.textContent = "Ich höre zu …";
@@ -91,8 +131,8 @@
   function stop() {
     const metroTake = !!Metro.timer;
     endSeg(performance.now());
-    running = false; cancelAnimationFrame(raf);
-    stream?.getTracks().forEach(t => t.stop());
+    running = false; liveSaving = false; cancelAnimationFrame(raf); saveNow();
+    stream?.getTracks().forEach(t => t.stop()); onsetStop();
     if (!recState) Piano.setRec(false);
     try { wakeLock?.release(); } catch {}
     $("startBtn").textContent = "🎤 Start"; $("startBtn").classList.add("primary"); $("startBtn").classList.remove("recon");
@@ -109,7 +149,7 @@
     if (!running) return;
     analyser.getFloatTimeDomainData(data);
     const { f, rms } = detectPitch(data, ctx.sampleRate);
-    const now = performance.now();
+    const now = performance.now(); clkTick();
     levelBar.style.width = Math.max(0, Math.min(100, (20 * Math.log10(rms + 1e-9) + 60) / 60 * 100)) + "%";
 
     if (f > 0) {
@@ -142,11 +182,11 @@
           seg.added = true; seg.addedMidi = mm; lastAuto = mm; seg.ref = addNote(mm, true);
           // Einsatzzeit merken; läuft das Metronom, auch dessen Raster (eine «Eins»)
           const L = seg.ref.line; L.rh = L.rh || [];
-          const prev = L.rh[seg.ref.idx - 1], a = Metro.timer ? Metro.anchor : null;
+          // Einsatz in Metronom-Zeit; mit Metronom die gemessene Verzögerung Klick → Ohr → Stimme → Mikrofon abziehen
+          const a = Metro.timer ? Metro.t0 : null, t = noteOnset(seg.start) - (a != null ? latNow() : 0), prev = L.rh[seg.ref.idx - 1];
           // neuer Durchgang (Pause > 4 s, anderes Metronom): nicht mit altem Rhythmus mischen
-          if (seg.ref.idx > 0 && (!prev || seg.start / 1000 - prev.t > 4 || seg.start / 1000 < prev.t || prev.a !== a)) L.rh = [];
-          // Einsatz um die Verzögerung früher: Erkennung; mit Metronom die ganze Kette Klick → Ohr → Stimme → Erkennung (kalibriert oder geschätzt)
-          L.rh[seg.ref.idx] = seg.rh = { t: seg.start / 1000 - liveLat(), d: null, a, b: a != null ? song().bpm : null };
+          if (seg.ref.idx > 0 && (!prev || t - prev.t > 4 || t < prev.t || prev.a !== a)) L.rh = [];
+          L.rh[seg.ref.idx] = seg.rh = { t, d: null, a, b: a != null ? song().bpm : null };
         }
       } else if (seg && seg.added && seg.ref) {
         // früh notierter Ton: korrigieren, solange er sich noch einpendelt

@@ -166,41 +166,39 @@
   // ---- Zeilen und Teile mit Akkorden + Melodie auf dem Klavier ----
   const chordEvName = c => c.txt != null ? { name: c.txt, german: settings.naming === "de" } : { name: intl(c.r, false) + SUF[c.q], german: false };
   // Töne aufs Raster ziehen. items: [{t, d}] in Sekunden (im Aufnahme-Tempo bpm); anchor: Zeit einer «Eins» (Metronom) oder null
-  // grid: "8" = Achtel, "16" = Sechzehntel, "off" = wie gesungen
-  // → [{p, l}] in Sechzehnteln ab Takt- bzw. Schlaganfang (bei "off" mit Kommastellen)
-  function quantize(items, bpm, anchor, grid = "8", bpb = 4, spb = 4) {
+  // grid: "8" = Achtel, sonst Sechzehntel → [{p, l}] in Sechzehnteln ab Takt- bzw. Schlaganfang
+  // Wie weit du durchgehend vor/nach dem Klick singst (dein Gefühl), in Sekunden – knapp unter einem halben Rasterschritt.
+  // Grob über den Kreis-Mittelwert (verträgt Ausreisser über die Rastergrenze), fein über den Median.
+  function feelShift(ts, anchor, g) {
+    if (ts.length < 4) return 0;
+    let cx = 0, cy = 0; ts.forEach(t => { const w = 2 * Math.PI * (t - anchor) / g; cx += Math.cos(w); cy += Math.sin(w); });
+    const o0 = Math.atan2(cy, cx) / (2 * Math.PI);
+    const r = ts.map(t => { const v = (t - anchor) / g - o0; return v - Math.round(v); }).sort((a, b) => a - b);
+    return Math.max(-.45, Math.min(.45, o0 + r[r.length >> 1])) * g;
+  }
+  // shift: schon bekannte Verschiebung (aus dem ganzen Durchgang) oder null = aus diesen Tönen schätzen
+  function quantize(items, bpm, anchor, grid = "8", bpb = 4, spb = 4, shift = null) {
     if (!items.length) return [];
     const beat = 60 / bpm, g16 = beat / spb;
     const per = grid === "8" ? Math.max(1, spb / 2) : spb, g = beat / per, f = spb / per;
     let ref = anchor;
-    if (ref != null && items.length >= 4) {
-      // gleichbleibend zu früh/zu spät gegenüber dem Klick (Verzögerung im Gerät): Mittel der Abweichungen vom Raster herausrechnen
-      let cx = 0, cy = 0; items.forEach(it => { const w = 2 * Math.PI * (it.t - ref) / g; cx += Math.cos(w); cy += Math.sin(w); });
-      const R = Math.hypot(cx, cy) / items.length, off = Math.atan2(cy, cx) / (2 * Math.PI);
-      if (R > .4 && Math.abs(off) > .06) ref += off * g;
-    }
+    if (ref != null) ref += shift != null ? shift : feelShift(items.map(it => it.t), anchor, g);
     if (ref == null) {   // ohne Metronom: das Raster suchen, in das die Einsätze am besten passen
       let bc = 1e9; const b = items[0].t;
       for (let k = 0; k < 24; k++) { const ph = b - k * g / 24; let c = 0; items.forEach(it => { const r = (it.t - ph) / g; c += Math.abs(r - Math.round(r)); }); if (c < bc) { bc = c; ref = ph; } }
     }
-    const barU = bpb * spb, gap = i => i + 1 < items.length ? items[i + 1].t - items[i].t : 9;
-    // gebunden gesungen (Ton klingt fast bis zum nächsten) → ohne Lücke
-    const legato = i => i + 1 < items.length && items[i].d != null && items[i].d >= gap(i) * .75;
-    if (grid === "off") {   // nicht einrasten – nur ab Takt-/Schlaganfang ausrichten
-      const x = items.map(it => (it.t - ref) / g16);
-      const st = anchor != null ? Math.floor(x[0] / barU) * barU : x[0];
-      return items.map((it, i) => ({ p: x[i] - st, l: legato(i) ? x[i + 1] - x[i] : Math.max(.6, Math.min((it.d || beat / 2) / g16, gap(i) / g16)) }));
-    }
-    const pos = items.map(it => Math.round((it.t - ref) / g) * f);
-    for (let i = 1; i < pos.length; i++) if (pos[i] <= pos[i - 1]) {
-      // zwei Töne auf demselben Platz: nur diesen Ton auf die nächste Sechzehntel – keine Kettenreaktion
-      pos[i] = Math.max(pos[i - 1] + 1, Math.round((items[i].t - ref) / g16));
-    }
-    const start = anchor != null ? Math.floor(pos[0] / barU) * barU : Math.floor(pos[0] / spb) * spb;   // ab Takt- bzw. Schlaganfang
+    // im Sechzehntel-Raster mit Metronom: knappe Fälle gehen an Schlag oder Achtel statt an eine «krumme» Sechzehntel
+    const cost = c => c % spb === 0 ? 0 : spb === 4 && c % 2 === 0 ? .04 : .08;
+    const snap = x => f !== 1 ? Math.round(x / f) * f : anchor == null ? Math.round(x) : [Math.floor(x), Math.ceil(x)].reduce((a, c) => Math.abs(x - c) + cost(c) < Math.abs(x - a) + cost(a) ? c : a);
+    const x = items.map(it => (it.t - ref) / g16), pos = x.map(snap);
+    for (let i = 1; i < pos.length; i++) if (pos[i] <= pos[i - 1]) pos[i] = Math.max(pos[i - 1] + 1, Math.round(x[i]));   // zwei Töne auf einem Platz: nur dieser eine Sechzehntel weiter
+    const barU = bpb * spb, start = anchor != null ? Math.floor(pos[0] / barU) * barU : Math.floor(pos[0] / spb) * spb;   // ab Takt- bzw. Schlaganfang
     return items.map((it, i) => {
-      let len = Math.max(f, Math.round((it.d || g) / g) * f);
-      if (i + 1 < items.length) len = legato(i) ? pos[i + 1] - pos[i] : Math.max(1, Math.min(len, pos[i + 1] - pos[i]));
-      return { p: pos[i] - start, l: len };
+      if (i + 1 >= items.length) return { p: pos[i] - start, l: Math.max(f, Math.round((it.d || g) / g) * f) };
+      const gap = pos[i + 1] - pos[i];
+      // gebunden gesungen (klingt fast bis zum nächsten Ton) → ohne Lücke
+      const legato = it.d != null && it.d >= (items[i + 1].t - it.t) * .75;
+      return { p: pos[i] - start, l: legato ? gap : Math.max(1, Math.min(gap, Math.max(f, Math.round((it.d || g) / g) * f))) };
     });
   }
   // Rhythmus nur verwenden, wenn er aus einem Durchgang stammt (keine Rücksprünge, keine Lücken > 4 s, gleiches Metronom)
@@ -215,22 +213,27 @@
   const spbOf = s => /\/8$/.test(meterOf(s).sig) ? 2 : 4;
   const hasQ = line => Array.isArray(line.q) && line.notes.length > 0 && line.q.length === line.notes.length;
   // gesungener Rhythmus, im Tempo ausgewertet, in dem er aufgenommen wurde (Metronom) – spätere Tempo-Änderungen verschieben nichts
-  function rhQ(s, line, grid) {
-    const rh = line.rh.slice(0, line.notes.length);
-    return quantize(rh, rh[0].b || s.bpm || 100, rh[0].a, grid, meterOf(s).beats, spbOf(s));
+  function rhQ(s, line) {
+    const rh = line.rh.slice(0, line.notes.length), a = rh[0].a, bpm = rh[0].b || s.bpm || 100, grid = s.grid === "16" || s.grid === "off" ? "16" : "8";
+    let shift = null;
+    if (a != null) {   // Gefühl aus dem ganzen Durchgang (alle Zeilen mit demselben Metronom) – viel verlässlicher als aus einer Zeile
+      const ts = []; s.sections.forEach(sec => sec.lines.forEach(l => { if (rhOk(l) && l.rh[0].a === a) l.rh.slice(0, l.notes.length).forEach(x => ts.push(x.t)); }));
+      shift = feelShift(ts, a, 60 / bpm / (grid === "8" ? Math.max(1, spbOf(s) / 2) : spbOf(s)));
+    }
+    return quantize(rh, bpm, a, grid, meterOf(s).beats, spbOf(s), shift);
   }
   // Rhythmus einer Zeile in Sechzehnteln ({p: Position ab Taktanfang, l: Länge}): von Hand bearbeitet oder aus dem Gesang
   function lineQ(s, line) {
     const n = line.notes.length; if (!n) return [];
     if (hasQ(line)) return line.q;
-    if (rhOk(line)) return rhQ(s, line, s.grid === "16" || s.grid === "off" ? "16" : "8");
+    if (rhOk(line)) return rhQ(s, line);
     const st = Math.max(1, spbOf(s) / 2); return line.notes.map((_, i) => ({ p: i * st, l: st }));   // ohne Rhythmus: gleichmässige Achtel
   }
   function lineEvents(s, line, t0 = 0) {
     const sung = !hasQ(line) && rhOk(line) && (s.bpm || line.rh[0].b);
     if (hasQ(line) || sung) {   // im Taktraster: von Hand bearbeitet oder gesungen
-      const g16 = 60 / (s.bpm || line.rh[0].b || 100) / spbOf(s), ev = []; let ni = 0;
-      const q = sung && s.grid === "off" ? rhQ(s, line, "off") : lineQ(s, line);
+      const g16 = 60 / (s.bpm || (line.rh && line.rh[0] && line.rh[0].b) || 100) / spbOf(s), ev = []; let ni = 0;
+      const q = lineQ(s, line);
       units(line, s.lang).forEach((u, i) => u.notes.forEach((m, k) => { const z = q[ni++]; if (z) ev.push({ t: t0 + z.p * g16, dur: z.l * g16, melody: [m], chord: k === 0 && line.chords[i] ? chordEvName(line.chords[i]) : null }); }));
       return { ev, t: ev.length ? Math.max(...ev.map(e => e.t + e.dur)) : t0, bar: true };
     }
@@ -243,13 +246,18 @@
     return { ev, t };
   }
   function sectionEvents(s, sec) {
-    let ev = [], t = 0;
+    let ev = [], end = 0, first = true;
     const beat = s.bpm ? 60 / s.bpm : 0;
     sec.lines.filter(l => l.text.trim() || l.notes.length).forEach(l => {
-      const r = lineEvents(s, l, t); ev = ev.concat(r.ev);
-      // mit Tempo: nächste Zeile auf dem nächsten Schlag – bei echtem Rhythmus auf dem nächsten Takt
-      const bar = meterOf(s).beats * (beat || 60 / ((l.rh && l.rh[0] && l.rh[0].b) || 100));
-      t = r.bar ? Math.ceil((r.t + .01) / bar) * bar : beat ? Math.ceil((r.t + beat * .5) / beat) * beat : r.t + .35;
+      const r = lineEvents(s, l, 0); if (!r.ev.length) return;
+      let off;
+      if (r.bar) {
+        // im Taktraster: so früh wie möglich auf einen Taktanfang – ein Auftakt darf in den letzten Takt der Zeile davor
+        const bar = meterOf(s).beats * (beat || 60 / ((l.rh && l.rh[0] && l.rh[0].b) || 100)), f0 = Math.min(...r.ev.map(e => e.t));
+        off = first ? 0 : Math.max(0, Math.ceil((end - f0) / bar - 1e-6)) * bar;
+      } else off = first ? 0 : beat ? Math.ceil((end + beat * .5) / beat - 1e-6) * beat : end + .35;   // ohne Rhythmus: nächster Schlag
+      r.ev.forEach(e => { e.t += off; ev.push(e); });
+      end = Math.max(end, r.t + off); first = false;
     });
     return ev;
   }
