@@ -234,7 +234,13 @@
     if (hasQ(line) || sung) {   // im Taktraster: von Hand bearbeitet oder gesungen
       const g16 = 60 / (s.bpm || (line.rh && line.rh[0] && line.rh[0].b) || 100) / spbOf(s), ev = []; let ni = 0;
       const q = lineQ(s, line);
-      units(line, s.lang).forEach((u, i) => u.notes.forEach((m, k) => { const z = q[ni++]; if (z) ev.push({ t: t0 + z.p * g16, dur: z.l * g16, melody: [m], chord: k === 0 && line.chords[i] ? chordEvName(line.chords[i]) : null }); }));
+      let pend = null;   // Akkord auf einer Silbe ohne Ton: kommt mit dem nächsten Ton
+      units(line, s.lang).forEach((u, i) => {
+        const ch = line.chords[i] ? chordEvName(line.chords[i]) : null;
+        if (!u.notes.length) { if (ch) pend = ch; return; }
+        u.notes.forEach((m, k) => { const z = q[ni++]; if (!z) return; const c = (k === 0 && ch) || pend; pend = null; ev.push({ t: t0 + z.p * g16, dur: z.l * g16, melody: [m], chord: c }); });
+      });
+      if (pend && ev.length) { const e = ev[ev.length - 1]; ev.push({ t: e.t + e.dur, dur: 4 * g16, melody: [], chord: pend }); }
       return { ev, t: ev.length ? Math.max(...ev.map(e => e.t + e.dur)) : t0, bar: true };
     }
     const us = units(line, s.lang), mel = line.notes.length > 0, ev = []; let t = t0;

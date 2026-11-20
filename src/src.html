@@ -248,7 +248,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v24</small></h1>
+    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v25</small></h1>
     <div class="settings">
       <button id="syncDot" title="Synchronisation">☁ aus</button>
       <button class="btn sm" id="settingsBtn" title="Einstellungen">⚙</button>
@@ -582,6 +582,24 @@
     if (!toks.length) return line.notes.map(m => ({ t: "", end: true, notes: [m] }));
     return toks.map((tk, i) => ({ ...tk, notes: i < toks.length - 1 ? (line.notes[i] != null ? [line.notes[i]] : []) : line.notes.slice(i) }));
   }
+  // Ton löschen, ohne den Rhythmus zu verlieren: der Nachbar übernimmt die Zeit – ein Doppelton wird so zu einem langen Ton.
+  // (Bisher ging dabei der bearbeitete Rhythmus verloren und die Zeile fiel auf gleichmässige Achtel zurück.)
+  function removeNote(line, j) {
+    const n = line.notes.length, same = k => k >= 0 && k < n && line.notes[k] === line.notes[j];
+    if (hasQ(line)) {
+      const q = line.q.map(z => ({ ...z })), x = q[j], prev = q[j - 1], next = q[j + 1];
+      if (next && same(j + 1)) { next.l += next.p - x.p; next.p = x.p; }   // gleicher Ton danach: beginnt hier
+      else if (prev && (same(j - 1) || prev.p + prev.l >= x.p)) prev.l = Math.max(prev.l, x.p + x.l - prev.p);   // gebunden/gleicher Ton davor: klingt weiter
+      q.splice(j, 1); line.q = q;
+    }
+    if (rhOk(line)) {
+      const rh = line.rh, x = rh[j], prev = rh[j - 1], next = rh[j + 1], end = x.t + (x.d || 0);
+      if (next && same(j + 1)) { next.d = next.t + (next.d || 0) - x.t; next.t = x.t; }
+      else if (prev && (same(j - 1) || prev.d == null || prev.t + prev.d >= x.t - .06)) prev.d = Math.max(prev.d || 0, end - prev.t);
+    }
+    if (line.rh) line.rh.splice(j, 1);
+    line.notes.splice(j, 1);
+  }
   function spanNotes(line, us, i) {
     const out = []; for (let j = i; j < us.length; j++) { if (j > i && line.chords[j]) break; out.push(...us[j].notes); } return out;
   }
@@ -785,7 +803,7 @@
       if (on && line.notes.length) {
         const t = document.createElement("div"); t.className = "ftools";
         t.innerHTML = `<button class="btn sm ghost" data-f="play">▶</button><button class="btn sm ghost" data-f="undo">⌫ letzten Ton</button><button class="btn sm${rhythmOpen ? " primary" : " ghost"}" data-f="rhythm" title="Rhythmus im Taktraster ansehen und verschieben">♫ Rhythmus</button>`;
-        t.onclick = e => { const f = e.target.dataset.f; if (f === "rhythm") { rhythmOpen = !rhythmOpen; rSel = 0; renderFocus(); e.stopPropagation(); return; } if (f === "undo") { line.notes.pop(); if (line.rh) line.rh.length = Math.min(line.rh.length, line.notes.length); persist(); afterNotesChanged(si); } if (f === "play") pianoToggle(e.target, () => lineEvents(s, line).ev); e.stopPropagation(); };
+        t.onclick = e => { const f = e.target.dataset.f; if (f === "rhythm") { rhythmOpen = !rhythmOpen; rSel = 0; renderFocus(); e.stopPropagation(); return; } if (f === "undo" && line.notes.length) { removeNote(line, line.notes.length - 1); persist(); afterNotesChanged(si); } if (f === "play") pianoToggle(e.target, () => lineEvents(s, line).ev); e.stopPropagation(); };
         row.appendChild(t);
       }
       row.onclick = () => setActive(si, li);
@@ -896,7 +914,7 @@
           const c = document.createElement("span"); c.className = "chip";
           c.innerHTML = noteName(m) + "<small>" + octave(m) + '</small><span class="x">✕</span>';
           c.onclick = e => {
-            if (e.target.classList.contains("x")) { line.notes.splice(j, 1); if (line.rh) line.rh.splice(j, 1); persist(); afterNotesChanged(si); return; }
+            if (e.target.classList.contains("x")) { removeNote(line, j); persist(); afterNotesChanged(si); return; }
             playTone(m, .6); c.classList.add("playing"); setTimeout(() => c.classList.remove("playing"), 600);
           };
           st.appendChild(c);
@@ -1604,8 +1622,9 @@
   const METERS = { "2/4": [3, 1], "3/4": [3, 1, 1], "4/4": [3, 1, 1, 1], "5/4": [3, 1, 1, 2, 1], "6/8": [3, 1, 1, 2, 1, 1], "7/8": [3, 1, 2, 1, 2, 1, 1], "12/8": [3, 1, 1, 2, 1, 1, 2, 1, 1, 2, 1, 1] };
   function meterOf(s) {
     const m = s && s.meter;
-    if (m && METERS[m.sig] && Array.isArray(m.acc) && m.acc.length === METERS[m.sig].length) return { sig: m.sig, beats: m.acc.length, acc: m.acc, sub: m.sub || 1 };
-    return { sig: "4/4", beats: 4, acc: METERS["4/4"].slice(), sub: (m && m.sub) || 1 };
+    const sig = m && METERS[m.sig] ? m.sig : "4/4";   // ohne gespeicherte Betonungen (z.B. Takt im Partner gewählt): die üblichen
+    const acc = m && Array.isArray(m.acc) && m.acc.length === METERS[sig].length ? m.acc : METERS[sig].slice();
+    return { sig, beats: acc.length, acc, sub: (m && m.sub) || 1 };
   }
   // Klick-Töne liegen über jeder Singstimme (> 1200 Hz): kommen sie übers Mikrofon zurück, hält sie die App nicht für Gesang
   const CLICK = { 3: [2400, .34], 2: [2000, .25], 1: [1700, .17] };

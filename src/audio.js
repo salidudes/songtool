@@ -58,14 +58,17 @@
   }
 
   // =============== Einsätze sample-genau (AudioWorklet, eigener Audio-Faden) ===============
-  // Misst, wann die Stimme lauter wird – unabhängig davon, ob die Seite gerade ruckelt. Zeiten in AudioContext-Zeit,
+  // Misst, wann die Stimme lauter wird – unabhängig davon, ob die Seite gerade ruckelt. Zählt nur ein schneller Anstieg
+  // (mehr als doppelt so laut innerhalb von 40 ms): ein Konsonant/neuer Anschlag ja, Lautstärke-Vibrato nein. Zeiten in AudioContext-Zeit,
   // also derselben Uhr wie die Metronom-Klicks. Vorher gefiltert: Klicks (hoch) und Rumpeln (tief) zählen nicht.
-  const ONSET_JS = `class O extends AudioWorkletProcessor{constructor(){super();this.s=0;this.h=new Float32Array(Math.ceil(.06*sampleRate/32));this.k=0;this.last=-1;this.rise=null}
-  process(ins){const x=ins[0]&&ins[0][0];if(!x)return true;const H=32,n=x.length,h=this.h;
-  for(let o=0;o<n;o+=H){let e=0;for(let i=o;i<o+H&&i<n;i++)e+=x[i]*x[i];e=Math.sqrt(e/H);
-  this.s+=(e>this.s?.5:.08)*(e-this.s);const t=currentTime+o/sampleRate;h[this.k++%h.length]=this.s;let f=1e9;for(let i=0;i<h.length;i++)if(h[i]<f)f=h[i];
-  if(this.s<=Math.max(.002,f*1.5))this.rise=t;
-  if(this.rise!=null&&this.s>.004&&this.s>f*2.2&&t-this.last>.07){this.last=t;this.port.postMessage(this.rise);this.rise=null}}
+  const ONSET_JS = `class O extends AudioWorkletProcessor{constructor(){super();this.w=new Float32Array(Math.ceil(.01*sampleRate/32));this.wk=0;this.ws=0;
+  this.h=new Float32Array(Math.ceil(.04*sampleRate/32));this.k=0;this.last=-1;this.rise=null}
+  process(ins){const x=ins[0]&&ins[0][0];if(!x)return true;const H=32,n=x.length,h=this.h,w=this.w;
+  for(let o=0;o<n;o+=H){let e=0;for(let i=o;i<o+H&&i<n;i++)e+=x[i]*x[i];
+  this.ws+=e-w[this.wk%w.length];w[this.wk++%w.length]=e;const s=Math.sqrt(Math.max(0,this.ws)/(w.length*H));
+  const t=currentTime+o/sampleRate;h[this.k++%h.length]=s;let f=1e9;for(let i=0;i<h.length;i++)if(h[i]<f)f=h[i];
+  if(s<=Math.max(.002,f*1.5))this.rise=t-.005;
+  if(this.rise!=null&&s>.004&&s>f*2.2&&t-this.last>.07){this.last=t;this.port.postMessage(this.rise);this.rise=null}}
   return true}}
   registerProcessor("onsets",O)`;
   let onsetNode = null, onsetMod = null, onsets = [];
@@ -163,7 +166,13 @@
       if (seg && Math.abs(mRaw - seg.center) < SEG_TOL) {
         seg.peak = Math.max(seg.peak || 0, rms);
         if (rms < seg.peak * .7 && now - seg.start > 50) seg.dip = true;
-        else if (seg.dip && rms > seg.peak * .88) newSeg([mRaw], now, true);
+        else if (seg.dip && rms > seg.peak * .88) {
+          // nur bei einem echten neuen Anschlag (Lautstärke-Sprung, sample-genau gemessen) – sonst machen Vibrato und
+          // Lautstärke-Schwankungen eines gehaltenen Tons einen Doppelton
+          const T = ctxAt(now);
+          if (!onsetNode || onsets.some(t => t > T - .15 && t < T + .01 && t > seg.start / 1000 - clk + .05)) newSeg([mRaw], now, true);
+          else { seg.dip = false; seg.peak = rms; }
+        }
       }
       segFeed(mRaw, now);
       let mShow, held;
