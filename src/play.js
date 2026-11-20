@@ -154,11 +154,11 @@
   const chordEvName = c => c.txt != null ? { name: c.txt, german: settings.naming === "de" } : { name: intl(c.r, false) + SUF[c.q], german: false };
   // Töne aufs Raster ziehen. items: [{t, d}] in Sekunden; anchor: Zeit einer «Eins» (Metronom) oder null
   // grid: "8" = Achtel, "16" = Sechzehntel, "off" = wie gesungen
-  function quantize(items, bpm, anchor, grid = "8") {
+  function quantize(items, bpm, anchor, grid = "8", bpb = 4) {
     if (!items.length) return [];
     const beat = 60 / bpm;
     if (grid === "off") {   // nicht einrasten – nur ab Takt-/Schlaganfang ausrichten
-      const ref = anchor != null ? anchor + Math.floor((items[0].t - anchor) / (4 * beat)) * 4 * beat : items[0].t;
+      const ref = anchor != null ? anchor + Math.floor((items[0].t - anchor) / (bpb * beat)) * bpb * beat : items[0].t;
       return items.map((it, i) => ({ t: it.t - ref, dur: Math.max(.08, Math.min(it.d || beat / 2, i + 1 < items.length ? items[i + 1].t - it.t : 9)) }));
     }
     const per = grid === "16" ? 4 : 2, g = beat / per;
@@ -169,7 +169,7 @@
     }
     const pos = items.map(it => Math.round((it.t - ref) / g));
     for (let i = 1; i < pos.length; i++) if (pos[i] <= pos[i - 1]) pos[i] = pos[i - 1] + 1;   // nie zwei Töne auf demselben Platz
-    const start = anchor != null ? Math.floor(pos[0] / (4 * per)) * 4 * per : Math.floor(pos[0] / per) * per;   // ab Takt- bzw. Schlaganfang
+    const start = anchor != null ? Math.floor(pos[0] / (bpb * per)) * bpb * per : Math.floor(pos[0] / per) * per;   // ab Takt- bzw. Schlaganfang
     return items.map((it, i) => {
       let len = Math.max(1, Math.round((it.d || g) / g));
       if (i + 1 < items.length) len = Math.max(1, Math.min(len, pos[i + 1] - pos[i]));
@@ -187,7 +187,7 @@
   function lineEvents(s, line, t0 = 0) {
     if (s.bpm && rhOk(line)) {
       const n = line.notes.length, rh = line.rh.slice(0, n), a = rh[0].a;
-      const q = quantize(rh.map(x => ({ t: x.t, d: x.d })), s.bpm, a != null && rh.every(x => x.a === a) ? a : null, s.grid || "8");
+      const q = quantize(rh.map(x => ({ t: x.t, d: x.d })), s.bpm, a != null && rh.every(x => x.a === a) ? a : null, s.grid || "8", meterOf(s).beats);
       const ev = []; let ni = 0;
       units(line, s.lang).forEach((u, i) => u.notes.forEach((m, k) => { const z = q[ni++]; if (z) ev.push({ t: t0 + z.t, dur: z.dur, melody: [m], chord: k === 0 && line.chords[i] ? chordEvName(line.chords[i]) : null }); }));
       return { ev, t: ev.length ? Math.max(...ev.map(e => e.t + e.dur)) : t0, bar: true };
@@ -206,7 +206,8 @@
     sec.lines.filter(l => l.text.trim() || l.notes.length).forEach(l => {
       const r = lineEvents(s, l, t); ev = ev.concat(r.ev);
       // mit Tempo: nächste Zeile auf dem nächsten Schlag – bei echtem Rhythmus auf dem nächsten Takt
-      t = r.bar ? Math.ceil((r.t + .01) / (4 * beat)) * 4 * beat : beat ? Math.ceil((r.t + beat * .5) / beat) * beat : r.t + .35;
+      const bar = meterOf(s).beats * beat;
+      t = r.bar ? Math.ceil((r.t + .01) / bar) * bar : beat ? Math.ceil((r.t + beat * .5) / beat) * beat : r.t + .35;
     });
     return ev;
   }
@@ -222,10 +223,10 @@
       const bpm = song().bpm;
       if (!(Metro.on && bpm)) return pianoPlay(ev, false, x => voices.push(x));
       // Metronom: einen Takt einzählen, dann mitklicken
-      const beat = 60 / bpm, pre = 4 * beat, c = ac(), t0 = c.currentTime + .08;
+      const M = meterOf(song()), beat = 60 / bpm, pre = M.beats * beat, c = ac(), t0 = c.currentTime + .08;
       ev.forEach(e => e.t += pre);
       const dur = pianoPlay(ev, false, x => voices.push(x));
-      for (let i = 0; i * beat < dur - .3; i++) voices.push(clickAt(t0 + i * beat, i % 4 === 0));
+      for (let i = 0; i * beat < dur - .3; i++) metroBeat(t0 + i * beat, i, M, beat).forEach(o => voices.push(o));
       return dur;
     });
   }

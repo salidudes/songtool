@@ -54,6 +54,12 @@
   .tappad .bpmbig { font-size: 72px; font-weight: 700; font-variant-numeric: tabular-nums; color: #eceef2; line-height: 1; }
   .tappad .hint2 { color: #8b92a1; font-size: 15px; text-align: center; }
   .tappad .bar { display: flex; gap: 8px; justify-content: center; }
+  .tempo-row select, .tempo select { padding: 5px 6px; font-size: 13px; width: auto; }
+  .metro-ctl { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; width: 100%; }
+  .accs { display: inline-flex; gap: 3px; flex-wrap: wrap; }
+  .acc { min-width: 34px; flex-direction: column; gap: 0 !important; line-height: 1.1; padding: 4px 6px !important; }
+  .acc small { font-size: 9px; color: var(--muted); }
+  .acc.a3 { color: var(--accent); border-color: var(--accent); } .acc.a2 { color: var(--text); } .acc.a1 { color: var(--muted); } .acc.a0 { color: #444a56; }
   .tempo-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
   .tempo { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
   .tempo input { width: 58px; text-align: center; padding: 5px 4px; font-size: 15px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; }
@@ -225,7 +231,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v18</small></h1>
+    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v19</small></h1>
     <div class="settings">
       <button id="syncDot" title="Synchronisation">☁ aus</button>
       <button class="btn sm" id="settingsBtn" title="Einstellungen">⚙</button>
@@ -885,7 +891,7 @@ function sylSplit(word, lang) {
       if (!lines.length) return;
       body += `<div class="sh">[${esc(secLabel(s, si))}]</div>` + lines.map(l => `<div class="ls${Object.keys(l.chords).length ? "" : " noch"}">${lsHTML(l, s.lang, false, !settings.showNotes)}</div>`).join("");
     });
-    card.innerHTML = `<h2>${esc(s.title || "Ohne Titel")}</h2><div class="sub">${k ? "Tonart: " + keyName(k) : "Tonart: –"}${s.bpm ? " · ♩ = " + s.bpm + " BPM" : ""}</div>` +
+    card.innerHTML = `<h2>${esc(s.title || "Ohne Titel")}</h2><div class="sub">${k ? "Tonart: " + keyName(k) : "Tonart: –"}${s.bpm ? " · ♩ = " + s.bpm + " BPM" : ""}${s.meter ? " · " + meterOf(s).sig : ""}</div>` +
       (body || '<p class="hint">Noch leer. Schreib im Tab «Schreiben» Text und Noten.</p>');
   }
   function lineText(line, lang) {
@@ -948,6 +954,7 @@ function sylSplit(word, lang) {
     let out = `SONG: ${s.title || "Ohne Titel"}\n`;
     out += `Tonart: ${kn} (${s.key === "auto" ? "von der App aus meiner Melodie geschätzt" : "von mir festgelegt"})\n`;
     if (s.bpm) out += `Tempo: ${s.bpm} BPM${s.bpmAuto === false ? " (von Hand)" : ""}\n`;
+    if (s.meter) out += `Takt: ${meterOf(s).sig}\n`;
     out += `Sprache: ${s.lang === "en" ? "Englisch" : "Deutsch"}\n\n`;
     out += `Legende:\n- «Melodie» = meine GESUNGENE Melodie, Silbe für Silbe (Silbe=Note). Oktave wissenschaftlich, C4 = mittleres C. Mehrere Noten auf einer Silbe sind mit ~ verbunden.\n`;
     out += `- «Akkorde» = Begleitakkorde, die ich gesetzt oder die App vorgeschlagen hat; «@ Silbe» = dort wechselt der Akkord.\n`;
@@ -1112,6 +1119,7 @@ function sylSplit(word, lang) {
       if ((m = l.match(/^SONG:\s*(.*)$/))) { out.title = m[1].trim(); return; }
       if ((m = l.match(/^Tonart:\s*(.*)$/))) { out.key = parseKeyText(m[1]); return; }
       if ((m = l.match(/^Tempo:\s*(\d+)/))) { out.bpm = +m[1]; out.bpmAuto = !/von Hand/.test(l); return; }
+      if ((m = l.match(/^Takt:\s*(\d+\/\d+)/)) && METERS[m[1]]) { out.meter = { sig: m[1], acc: METERS[m[1]].slice(), sub: 1 }; return; }
       if ((m = l.match(/^Sprache:\s*(.*)$/))) { out.lang = /engl/i.test(m[1]) ? "en" : "de"; return; }
       if (/^Legende:/.test(l)) { legend = true; return; }
       if (legend) { if (/^-\s/.test(l)) return; legend = false; }
@@ -1157,10 +1165,10 @@ function sylSplit(word, lang) {
     if (s) {
       // gleiche Memos (Teil + Name) behalten ihre ID → die Aufnahme auf diesem Gerät bleibt verknüpft
       const oldIds = {}; s.sections.forEach((sec, i) => (sec.memos || []).forEach(m => oldIds[secLabel(s, i) + "|" + m.name] = m.id));
-      Object.assign(s, { key: p.key !== "auto" ? p.key : s.key, lang: p.lang, bpm: p.bpm || s.bpm || null, bpmAuto: p.bpm ? p.bpmAuto : s.bpmAuto, sections: p.sections, active: { s: 0, l: 0 } });
+      Object.assign(s, { key: p.key !== "auto" ? p.key : s.key, lang: p.lang, bpm: p.bpm || s.bpm || null, bpmAuto: p.bpm ? p.bpmAuto : s.bpmAuto, meter: p.meter && (!s.meter || s.meter.sig !== p.meter.sig) ? p.meter : s.meter, sections: p.sections, active: { s: 0, l: 0 } });
       s.sections.forEach((sec, i) => (sec.memos || []).forEach(m => { const id = oldIds[secLabel(s, i) + "|" + m.name]; if (id) m.id = id; }));
     }
-    else { s = Object.assign(newSong(p.title || "Song aus Partner"), { key: p.key, lang: p.lang, bpm: p.bpm || null, bpmAuto: p.bpm ? p.bpmAuto : true, sections: p.sections }); songs.push(s); }
+    else { s = Object.assign(newSong(p.title || "Song aus Partner"), { key: p.key, lang: p.lang, bpm: p.bpm || null, bpmAuto: p.bpm ? p.bpmAuto : true, meter: p.meter || null, sections: p.sections }); songs.push(s); }
     curId = s.id; persist(); refreshAll();
     toast((s ? "Song übernommen" : "") + (missing ? " · " + missing + " Akkord(e) ohne passende Silbe" : ""));
   };
@@ -1703,11 +1711,27 @@ function sylSplit(word, lang) {
   })();
   // =============== Tempo-Regler, Tap, Metronom ===============
   const Metro = { on: false, timer: null, next: 0, n: 0 };
-  function clickAt(t, accent) {
+  // Taktart + Akzente: 3 = stark, 2 = mittel, 1 = leise, 0 = aus
+  const METERS = { "2/4": [3, 1], "3/4": [3, 1, 1], "4/4": [3, 1, 1, 1], "5/4": [3, 1, 1, 2, 1], "6/8": [3, 1, 1, 2, 1, 1], "7/8": [3, 1, 2, 1, 2, 1, 1], "12/8": [3, 1, 1, 2, 1, 1, 2, 1, 1, 2, 1, 1] };
+  function meterOf(s) {
+    const m = s && s.meter;
+    if (m && METERS[m.sig] && Array.isArray(m.acc) && m.acc.length === METERS[m.sig].length) return { sig: m.sig, beats: m.acc.length, acc: m.acc, sub: m.sub || 1 };
+    return { sig: "4/4", beats: 4, acc: METERS["4/4"].slice(), sub: (m && m.sub) || 1 };
+  }
+  const CLICK = { 3: [1800, .26], 2: [1450, .18], 1: [1100, .11] };
+  function clickAt(t, level, quiet) {
     const c = ac(), o = c.createOscillator(), g = c.createGain();
-    o.type = "square"; o.frequency.value = accent ? 1700 : 1150;
-    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(accent ? .22 : .13, t + .002); g.gain.exponentialRampToValueAtTime(.001, t + .045);
+    const [f, v] = quiet ? [900, .05] : CLICK[level === true ? 3 : level === false ? 1 : level] || CLICK[1];
+    o.type = "square"; o.frequency.value = f;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + .002); g.gain.exponentialRampToValueAtTime(.001, t + (quiet ? .025 : .045));
     o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + .06); return o;
+  }
+  // ein Schlag inkl. Unterteilung; gibt die Klang-Quellen zurück (zum Stoppen)
+  function metroBeat(t, n, M, beat) {
+    const out = [], lvl = M.acc[n % M.beats];
+    if (lvl > 0) out.push(clickAt(t, lvl));
+    for (let k = 1; k < M.sub; k++) out.push(clickAt(t + k * beat / M.sub, 1, true));
+    return out;
   }
   function metroStart() {
     if (Metro.timer) return;
@@ -1715,7 +1739,8 @@ function sylSplit(word, lang) {
     Metro.anchor = performance.now() / 1000 + (Metro.next - c.currentTime);
     Metro.timer = setInterval(() => {
       const bpm = song().bpm; if (!bpm) return;
-      while (Metro.next < c.currentTime + .15) { clickAt(Metro.next, Metro.n % 4 === 0); Metro.next += 60 / bpm; Metro.n++; }
+      const M = meterOf(song());
+      while (Metro.next < c.currentTime + .15) { metroBeat(Metro.next, Metro.n, M, 60 / bpm); Metro.next += 60 / bpm; Metro.n++; }
     }, 25);
   }
   function metroStop() { clearInterval(Metro.timer); Metro.timer = null; }
@@ -1732,13 +1757,17 @@ function sylSplit(word, lang) {
       <button class="btn sm tap" data-t="tap" title="Im Takt antippen">Tap</button><button class="btn sm" data-t="half" title="Halbes Tempo">½</button><button class="btn sm" data-t="double" title="Doppeltes Tempo">×2</button>
       <label class="toggle sm" title="Raster, auf das gesungene Töne beim Abspielen gezogen werden">Raster <select data-t="grid"><option value="8"${(s.grid || "8") === "8" ? " selected" : ""}>Achtel</option><option value="16"${s.grid === "16" ? " selected" : ""}>Sechzehntel</option><option value="off"${s.grid === "off" ? " selected" : ""}>aus (wie gesungen)</option></select></label>
       <label class="toggle sm" title="Tempo aus deinen Aufnahmen erkennen, solange du keins von Hand eingibst"><input type="checkbox" data-t="auto"${s.bpmAuto !== false ? " checked" : ""}> automatisch</label>
+      ${withMetro ? metroControls(s) : ""}
       ${withMetro ? `<button class="btn sm${Metro.on ? " metro-on" : ""}" data-t="metro" title="Metronom beim Singen, Aufnehmen und Abspielen">♩ Metronom ${Metro.on ? "an" : "aus"}</button>` : ""}`;
     const inp = box.querySelector('input[type="number"]');
     inp.onchange = () => setBpm(+inp.value || null);
     box.querySelector('[data-t="grid"]').onchange = e => { song().grid = e.target.value; persist(); renderTempo(); };
+    const sig = box.querySelector('[data-t="sig"]'); if (sig) sig.onchange = e => setMeter(m => { m.sig = e.target.value; m.acc = METERS[m.sig].slice(); });
+    const sub = box.querySelector('[data-t="sub"]'); if (sub) sub.onchange = e => setMeter(m => m.sub = +e.target.value);
+    box.querySelectorAll("[data-acc]").forEach(b => b.onclick = ev => { ev.stopPropagation(); const i = +b.dataset.acc; setMeter(m => m.acc[i] = (m.acc[i] + 3) % 4); clickAt(ac().currentTime + .02, meterOf(song()).acc[i] || 1); });
     box.querySelector('[data-t="auto"]').onchange = e => { if (e.target.checked) autoTempo(true); else { song().bpmAuto = false; persist(); renderTempo(); } };
     box.onclick = e => {
-      const t = e.target.dataset.t; if (!t || t === "auto" || t === "grid") return; const b = song().bpm || 100;
+      const t = e.target.dataset.t; if (!t || t === "auto" || t === "grid" || t === "sig" || t === "sub") return; const b = song().bpm || 100;
       if (t === "-") setBpm(b - 1); if (t === "+") setBpm(b + 1);
       if (t === "half") setBpm(b / 2); if (t === "double") setBpm(b * 2);
       if (t === "tap") TapPad.show(v => setBpm(v), song().bpm);
@@ -1764,6 +1793,18 @@ function sylSplit(word, lang) {
     if (v && v !== s.bpm) { setBpm(v, true); toast("Tempo automatisch erkannt: " + v + " BPM"); }
     else { s.bpmAuto = true; persist(); renderTempo(); if (force && !v) toast("Noch zu wenig Aufnahmen, um das Tempo zu erkennen"); }
   }
+  const ACC_SYM = ["·", "○", "●", "▲"];
+  function metroControls(s) {
+    const M = meterOf(s);
+    return `<div class="metro-ctl"><label class="toggle sm">Takt <select data-t="sig">${Object.keys(METERS).map(k => `<option${k === M.sig ? " selected" : ""}>${k}</option>`).join("")}</select></label>
+      <span class="accs" title="Antippen: stark ▲ → mittel ● → leise ○ → aus ·">${M.acc.map((a, i) => `<button class="btn sm acc a${a}" data-acc="${i}">${ACC_SYM[a]}<small>${i + 1}</small></button>`).join("")}</span>
+      <label class="toggle sm">Unterteilung <select data-t="sub"><option value="1"${M.sub === 1 ? " selected" : ""}>keine</option><option value="2"${M.sub === 2 ? " selected" : ""}>Achtel</option><option value="3"${M.sub === 3 ? " selected" : ""}>Triolen</option><option value="4"${M.sub === 4 ? " selected" : ""}>Sechzehntel</option></select></label></div>`;
+  }
+  function setMeter(change) {
+    const s = song(), M = meterOf(s); const m = { sig: M.sig, acc: M.acc.slice(), sub: M.sub };
+    change(m); s.meter = m; persist(); renderTempo();
+    if ($("viewSheet").style.display !== "none") renderSheet();
+  }
   function renderTempo() {
     if ($("sheetTempo")) tempoWidget($("sheetTempo"), false);
     if ($("tempoRow") && !$("tempoRow").hidden) tempoWidget($("tempoRow"), true);
@@ -1771,7 +1812,7 @@ function sylSplit(word, lang) {
   // Memo-Töne im Song-Tempo (auf Sechzehntel gerundet)
   function timedEvents(notes, bpm, anchor) {
     if (!notes.length) return [];
-    if (bpm) { const q = quantize(notes.map(n => ({ t: n.start, d: n.end - n.start })), bpm, anchor == null ? null : anchor, song().grid || "8"); return notes.map((n, i) => ({ t: q[i].t, dur: q[i].dur, melody: [n.m], chord: null })); }
+    if (bpm) { const q = quantize(notes.map(n => ({ t: n.start, d: n.end - n.start })), bpm, anchor == null ? null : anchor, song().grid || "8", meterOf(song()).beats); return notes.map((n, i) => ({ t: q[i].t, dur: q[i].dur, melody: [n.m], chord: null })); }
     const b = notes[0].start, g = bpm ? 15 / bpm : 0;
     return notes.map(n => {
       const t = n.start - b, d = Math.max(.12, n.end - n.start);
@@ -1935,11 +1976,11 @@ function sylSplit(word, lang) {
   const chordEvName = c => c.txt != null ? { name: c.txt, german: settings.naming === "de" } : { name: intl(c.r, false) + SUF[c.q], german: false };
   // Töne aufs Raster ziehen. items: [{t, d}] in Sekunden; anchor: Zeit einer «Eins» (Metronom) oder null
   // grid: "8" = Achtel, "16" = Sechzehntel, "off" = wie gesungen
-  function quantize(items, bpm, anchor, grid = "8") {
+  function quantize(items, bpm, anchor, grid = "8", bpb = 4) {
     if (!items.length) return [];
     const beat = 60 / bpm;
     if (grid === "off") {   // nicht einrasten – nur ab Takt-/Schlaganfang ausrichten
-      const ref = anchor != null ? anchor + Math.floor((items[0].t - anchor) / (4 * beat)) * 4 * beat : items[0].t;
+      const ref = anchor != null ? anchor + Math.floor((items[0].t - anchor) / (bpb * beat)) * bpb * beat : items[0].t;
       return items.map((it, i) => ({ t: it.t - ref, dur: Math.max(.08, Math.min(it.d || beat / 2, i + 1 < items.length ? items[i + 1].t - it.t : 9)) }));
     }
     const per = grid === "16" ? 4 : 2, g = beat / per;
@@ -1950,7 +1991,7 @@ function sylSplit(word, lang) {
     }
     const pos = items.map(it => Math.round((it.t - ref) / g));
     for (let i = 1; i < pos.length; i++) if (pos[i] <= pos[i - 1]) pos[i] = pos[i - 1] + 1;   // nie zwei Töne auf demselben Platz
-    const start = anchor != null ? Math.floor(pos[0] / (4 * per)) * 4 * per : Math.floor(pos[0] / per) * per;   // ab Takt- bzw. Schlaganfang
+    const start = anchor != null ? Math.floor(pos[0] / (bpb * per)) * bpb * per : Math.floor(pos[0] / per) * per;   // ab Takt- bzw. Schlaganfang
     return items.map((it, i) => {
       let len = Math.max(1, Math.round((it.d || g) / g));
       if (i + 1 < items.length) len = Math.max(1, Math.min(len, pos[i + 1] - pos[i]));
@@ -1968,7 +2009,7 @@ function sylSplit(word, lang) {
   function lineEvents(s, line, t0 = 0) {
     if (s.bpm && rhOk(line)) {
       const n = line.notes.length, rh = line.rh.slice(0, n), a = rh[0].a;
-      const q = quantize(rh.map(x => ({ t: x.t, d: x.d })), s.bpm, a != null && rh.every(x => x.a === a) ? a : null, s.grid || "8");
+      const q = quantize(rh.map(x => ({ t: x.t, d: x.d })), s.bpm, a != null && rh.every(x => x.a === a) ? a : null, s.grid || "8", meterOf(s).beats);
       const ev = []; let ni = 0;
       units(line, s.lang).forEach((u, i) => u.notes.forEach((m, k) => { const z = q[ni++]; if (z) ev.push({ t: t0 + z.t, dur: z.dur, melody: [m], chord: k === 0 && line.chords[i] ? chordEvName(line.chords[i]) : null }); }));
       return { ev, t: ev.length ? Math.max(...ev.map(e => e.t + e.dur)) : t0, bar: true };
@@ -1987,7 +2028,8 @@ function sylSplit(word, lang) {
     sec.lines.filter(l => l.text.trim() || l.notes.length).forEach(l => {
       const r = lineEvents(s, l, t); ev = ev.concat(r.ev);
       // mit Tempo: nächste Zeile auf dem nächsten Schlag – bei echtem Rhythmus auf dem nächsten Takt
-      t = r.bar ? Math.ceil((r.t + .01) / (4 * beat)) * 4 * beat : beat ? Math.ceil((r.t + beat * .5) / beat) * beat : r.t + .35;
+      const bar = meterOf(s).beats * beat;
+      t = r.bar ? Math.ceil((r.t + .01) / bar) * bar : beat ? Math.ceil((r.t + beat * .5) / beat) * beat : r.t + .35;
     });
     return ev;
   }
@@ -2003,10 +2045,10 @@ function sylSplit(word, lang) {
       const bpm = song().bpm;
       if (!(Metro.on && bpm)) return pianoPlay(ev, false, x => voices.push(x));
       // Metronom: einen Takt einzählen, dann mitklicken
-      const beat = 60 / bpm, pre = 4 * beat, c = ac(), t0 = c.currentTime + .08;
+      const M = meterOf(song()), beat = 60 / bpm, pre = M.beats * beat, c = ac(), t0 = c.currentTime + .08;
       ev.forEach(e => e.t += pre);
       const dur = pianoPlay(ev, false, x => voices.push(x));
-      for (let i = 0; i * beat < dur - .3; i++) voices.push(clickAt(t0 + i * beat, i % 4 === 0));
+      for (let i = 0; i * beat < dur - .3; i++) metroBeat(t0 + i * beat, i, M, beat).forEach(o => voices.push(o));
       return dur;
     });
   }
