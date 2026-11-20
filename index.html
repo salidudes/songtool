@@ -245,7 +245,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v20</small></h1>
+    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v21</small></h1>
     <div class="settings">
       <button id="syncDot" title="Synchronisation">☁ aus</button>
       <button class="btn sm" id="settingsBtn" title="Einstellungen">⚙</button>
@@ -1023,6 +1023,7 @@ function sylSplit(word, lang) {
     out += `Legende:\n- «Melodie» = meine GESUNGENE Melodie, Silbe für Silbe (Silbe=Note). Oktave wissenschaftlich, C4 = mittleres C. Mehrere Noten auf einer Silbe sind mit ~ verbunden.\n`;
     out += `- «Akkorde» = Begleitakkorde, die ich gesetzt oder die App vorgeschlagen hat; «@ Silbe» = dort wechselt der Akkord.\n`;
     out += `- Notennamen international: B = deutsches H, Bb = deutsches B.\n`;
+    out += `- «Rhythmus» = pro Note «Position/Länge» in Sechzehnteln ab Taktanfang (0 = auf der Eins).\n`;
     out += `- «Memo» = separate Sprachaufnahme zu diesem Teil (Ton + Dauer, Phrasen mit / getrennt), z.B. eine gesummte Melodie-Idee.\n`;
     s.sections.forEach((sec, si) => {
       const lines = sec.lines.filter(l => l.text.trim() || l.notes.length), memos = sec.memos || [];
@@ -1033,6 +1034,8 @@ function sylSplit(word, lang) {
         const us = units(line, s.lang);
         out += (line.text.trim() || "(ohne Text)") + "\n";
         if (line.notes.length) out += "  Melodie: " + us.map(u => (u.t || "·") + "=" + (u.notes.length ? u.notes.map(m => intl(m, fl) + octave(m)).join("~") : "–")).join(" | ") + "\n";
+        // Rhythmus: pro Note Position/Länge in Sechzehnteln ab Taktanfang
+        if (line.notes.length && (hasQ(line) || (s.bpm && rhOk(line)))) out += "  Rhythmus: " + lineQ(s, line).map(z => z.p + "/" + z.l).join(" ") + "\n";
         const ci = Object.keys(line.chords).map(Number).sort((a, b) => a - b);
         if (ci.length) out += "  Akkorde: " + ci.map(i => { const c = line.chords[i]; return (c.txt != null ? c.txt : intl(c.r, fl) + SUF[c.q]) + " @ " + (us[i]?.t || "Silbe " + (i + 1)); }).join(", ") + "\n";
       });
@@ -1190,6 +1193,7 @@ function sylSplit(word, lang) {
       if ((m = l.match(/^\[(.+)\]$/))) { const base = m[1].trim().replace(/\s+\d+$/, ""); sec = { id: uid(), type: TYPES.includes(base) ? base : m[1].trim(), lines: [], memos: [] }; out.sections.push(sec); last = null; return; }
       if (/^\s+Memo «/.test(l)) { const mm = parseMemoLine(l); if (mm && sec) sec.memos.push(mm); return; }
       if (/^\s+Längen:/.test(l)) return;
+      if ((m = l.match(/^\s+Rhythmus:\s*(.*)$/))) { if (last) last._rq = m[1]; return; }
       if ((m = l.match(/^\s+Melodie:\s*(.*)$/))) { if (last) last._mel = m[1]; return; }
       if ((m = l.match(/^\s+Akkorde:\s*(.*)$/))) { if (last) last._chd = m[1]; return; }
       if (!l.trim() || !sec) return;
@@ -1214,7 +1218,8 @@ function sylSplit(word, lang) {
             line.chords[idx] = parseChord(c); from = idx + 1;
           });
         }
-        delete line._mel; delete line._chd;
+        if (line._rq) { const q = line._rq.trim().split(/\s+/).map(x => x.split("/").map(Number)).filter(x => x.length === 2 && x.every(isFinite)).map(([p, l]) => ({ p, l: Math.max(1, l) })); if (q.length === line.notes.length) line.q = q; }
+        delete line._mel; delete line._chd; delete line._rq;
       });
     });
     return { song: out, missing };
