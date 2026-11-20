@@ -92,7 +92,9 @@
     stream?.getTracks().forEach(t => t.stop());
     try { wakeLock?.release(); } catch {}
     $("startBtn").textContent = "🎤 Start"; $("startBtn").classList.add("primary"); $("startBtn").classList.remove("recon");
+    const wasLive = !visualOnly;
     showIdle("Pausiert"); levelBar.style.width = "0"; visualOnly = false;
+    if (wasLive && settings.auto) setTimeout(() => autoTempo(false), 50);
     dockState();
   }
   $("startBtn").onclick = () => { if (recState) { recState.rec.stop(); return; } running ? stop() : start(); };

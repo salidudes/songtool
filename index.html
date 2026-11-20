@@ -218,7 +218,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v15</small></h1>
+    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v16</small></h1>
     <div class="settings">
       <button id="syncDot" title="Synchronisation">☁ aus</button>
       <button class="btn sm" id="settingsBtn" title="Einstellungen">⚙</button>
@@ -727,7 +727,7 @@ function sylSplit(word, lang) {
     const si = s.active.s, sec = s.sections[si], box = $("focus"); if (!sec) return;
     const recOn = typeof recState !== "undefined" && recState && recState.secId === sec.id;
     box.innerHTML = `<div class="focus-head"><b>${esc(secLabel(s, si))}</b><span class="fz">Zeile ${s.active.l + 1}</span>
-      <button class="btn sm${Metro.on ? " metro-on" : ""}" id="tempoBtn" title="Tempo und Metronom">♩ ${s.bpm || "Tempo"}</button>
+      <button class="btn sm${Metro.on ? " metro-on" : ""}" id="tempoBtn" title="Tempo und Metronom">♩ ${s.bpm ? s.bpm + (s.bpmAuto !== false ? " auto" : "") : "Tempo"}</button>
       <label class="toggle sm" title="Gehaltene Töne automatisch in die aktive Zeile schreiben"><input type="checkbox" id="autoAdd"${settings.auto ? " checked" : ""}> mitschreiben</label>
       <button class="btn sm${recOn ? " recon" : ""}" id="focusRec" title="Memo für diesen Teil aufnehmen">${recOn ? "■ " + fmtT((Date.now() - recState.t0) / 1000) : "🎙 Memo"}</button></div><div class="focus-lines"></div>`;
     $("autoAdd").onchange = e => { settings.auto = e.target.checked; saveSettings(); };
@@ -936,7 +936,7 @@ function sylSplit(word, lang) {
     const kn = k ? intl(k.t, fl) + (k.mode === "maj" ? " major" : " minor") : "noch unbekannt";
     let out = `SONG: ${s.title || "Ohne Titel"}\n`;
     out += `Tonart: ${kn} (${s.key === "auto" ? "von der App aus meiner Melodie geschätzt" : "von mir festgelegt"})\n`;
-    if (s.bpm) out += `Tempo: ${s.bpm} BPM\n`;
+    if (s.bpm) out += `Tempo: ${s.bpm} BPM${s.bpmAuto === false ? " (von Hand)" : ""}\n`;
     out += `Sprache: ${s.lang === "en" ? "Englisch" : "Deutsch"}\n\n`;
     out += `Legende:\n- «Melodie» = meine GESUNGENE Melodie, Silbe für Silbe (Silbe=Note). Oktave wissenschaftlich, C4 = mittleres C. Mehrere Noten auf einer Silbe sind mit ~ verbunden.\n`;
     out += `- «Akkorde» = Begleitakkorde, die ich gesetzt oder die App vorgeschlagen hat; «@ Silbe» = dort wechselt der Akkord.\n`;
@@ -1100,7 +1100,7 @@ function sylSplit(word, lang) {
       const l = raw.replace(/\s+$/, ""); let m;
       if ((m = l.match(/^SONG:\s*(.*)$/))) { out.title = m[1].trim(); return; }
       if ((m = l.match(/^Tonart:\s*(.*)$/))) { out.key = parseKeyText(m[1]); return; }
-      if ((m = l.match(/^Tempo:\s*(\d+)/))) { out.bpm = +m[1]; return; }
+      if ((m = l.match(/^Tempo:\s*(\d+)/))) { out.bpm = +m[1]; out.bpmAuto = !/von Hand/.test(l); return; }
       if ((m = l.match(/^Sprache:\s*(.*)$/))) { out.lang = /engl/i.test(m[1]) ? "en" : "de"; return; }
       if (/^Legende:/.test(l)) { legend = true; return; }
       if (legend) { if (/^-\s/.test(l)) return; legend = false; }
@@ -1146,10 +1146,10 @@ function sylSplit(word, lang) {
     if (s) {
       // gleiche Memos (Teil + Name) behalten ihre ID → die Aufnahme auf diesem Gerät bleibt verknüpft
       const oldIds = {}; s.sections.forEach((sec, i) => (sec.memos || []).forEach(m => oldIds[secLabel(s, i) + "|" + m.name] = m.id));
-      Object.assign(s, { key: p.key !== "auto" ? p.key : s.key, lang: p.lang, bpm: p.bpm || s.bpm || null, sections: p.sections, active: { s: 0, l: 0 } });
+      Object.assign(s, { key: p.key !== "auto" ? p.key : s.key, lang: p.lang, bpm: p.bpm || s.bpm || null, bpmAuto: p.bpm ? p.bpmAuto : s.bpmAuto, sections: p.sections, active: { s: 0, l: 0 } });
       s.sections.forEach((sec, i) => (sec.memos || []).forEach(m => { const id = oldIds[secLabel(s, i) + "|" + m.name]; if (id) m.id = id; }));
     }
-    else { s = Object.assign(newSong(p.title || "Song aus Partner"), { key: p.key, lang: p.lang, bpm: p.bpm || null, sections: p.sections }); songs.push(s); }
+    else { s = Object.assign(newSong(p.title || "Song aus Partner"), { key: p.key, lang: p.lang, bpm: p.bpm || null, bpmAuto: p.bpm ? p.bpmAuto : true, sections: p.sections }); songs.push(s); }
     curId = s.id; persist(); refreshAll();
     toast((s ? "Song übernommen" : "") + (missing ? " · " + missing + " Akkord(e) ohne passende Silbe" : ""));
   };
@@ -1247,7 +1247,9 @@ function sylSplit(word, lang) {
     stream?.getTracks().forEach(t => t.stop());
     try { wakeLock?.release(); } catch {}
     $("startBtn").textContent = "🎤 Start"; $("startBtn").classList.add("primary"); $("startBtn").classList.remove("recon");
+    const wasLive = !visualOnly;
     showIdle("Pausiert"); levelBar.style.width = "0"; visualOnly = false;
+    if (wasLive && settings.auto) setTimeout(() => autoTempo(false), 50);
     dockState();
   }
   $("startBtn").onclick = () => { if (recState) { recState.rec.stop(); return; } running ? stop() : start(); };
@@ -1512,7 +1514,7 @@ function sylSplit(word, lang) {
       const opts = metro ? [metro.bpm] : guess ? [guess, Math.round(guess / 2), guess * 2].filter(v => v >= 40 && v <= 240) : [];
       const bpmGuess = opts.length ? (s.bpm && !metro ? opts.reduce((a, v) => Math.abs(v - s.bpm) < Math.abs(a - s.bpm) ? v : a) : opts[0]) : null;
       const time = new Date().toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" });
-      memoEdit = { songId, secId, blob, isNew: true, bpm: bpmGuess, bpmOpts: opts, fromMetro: !!metro, takeBpm: !!bpmGuess && !s.bpm, memo: { metro: metro || null, id: uid(), name: secLabel(s, s.sections.indexOf(sec)) + " " + time, kind: "gesang", apply: cnt > 0, applied: false, created: Date.now(), dur: Math.round(audio.duration * 10) / 10, phrases: phr } };
+      memoEdit = { songId, secId, blob, isNew: true, bpm: bpmGuess, bpmOpts: opts, fromMetro: !!metro, takeBpm: !!bpmGuess && s.bpmAuto !== false, memo: { metro: metro || null, id: uid(), name: secLabel(s, s.sections.indexOf(sec)) + " " + time, kind: "gesang", apply: cnt > 0, applied: false, created: Date.now(), dur: Math.round(audio.duration * 10) / 10, phrases: phr } };
       $("memoInfo").textContent = cnt ? `${fmtT(audio.duration)} · ${cnt} Töne in ${phr.length} Phrase(n) erkannt` : `${fmtT(audio.duration)} · keine Töne erkannt – das Memo kannst du trotzdem speichern`;
       renderMemoDlg(); $("memoOk").disabled = false;
     } catch (e) {
@@ -1538,7 +1540,7 @@ function sylSplit(word, lang) {
       <div class="sub" style="margin:0">${M.kind === "gesang" ? "Gesang gehört zu den Textzeilen dieses Teils." : "Wird als eigenes Memo bei diesem Teil gespeichert, unabhängig vom Text."}</div>
       ${memoEdit.bpm && !(memoEdit.fromMetro && s.bpm === memoEdit.bpm) ? `<div class="sub" style="margin:0">${memoEdit.fromMetro ? "Tempo vom Metronom" : "Tempo erkannt – wähl, was sich richtig anfühlt"}:
         ${memoEdit.bpmOpts.map(v => `<button class="btn sm${v === memoEdit.bpm ? " primary" : ""}" data-bpmopt="${v}">${v} BPM</button>`).join(" ")}</div>
-        <label class="toggle"><input type="checkbox" id="mBpm"${memoEdit.takeBpm ? " checked" : ""}> als Song-Tempo übernehmen${s.bpm ? " (bisher " + s.bpm + ")" : ""}</label>` : ""}
+        <label class="toggle"><input type="checkbox" id="mBpm"${memoEdit.takeBpm ? " checked" : ""}> als Song-Tempo übernehmen${s.bpm ? " (bisher " + s.bpm + (s.bpmAuto === false ? ", von Hand" : "") + ")" : ""}</label>` : ""}
       ${memoEdit.blob ? '<div><button class="btn sm" id="mPlayAll">▶ Aufnahme anhören</button></div>' : ""}`;
     box.appendChild(head);
     $("mName").value = M.name; $("mName").oninput = e => M.name = e.target.value;
@@ -1574,7 +1576,7 @@ function sylSplit(word, lang) {
     stopAll();
     const { s, sec } = findSec(memoEdit.songId, memoEdit.secId); if (!sec) return;
     const M = memoEdit.memo; M.name = (M.name || "").trim() || KIND[M.kind];
-    if (memoEdit.takeBpm && memoEdit.bpm) { s.bpm = memoEdit.bpm; renderTempo(); }
+    if (memoEdit.takeBpm && memoEdit.bpm && memoEdit.bpm !== s.bpm) { s.bpm = memoEdit.bpm; s.bpmAuto = s.bpmAuto !== false; renderTempo(); toast("Tempo: " + s.bpm + " BPM"); }
     let used = 0;
     if (M.kind === "gesang" && M.apply) {
       const replace = $("mReplace") ? $("mReplace").checked : true, touched = new Set();
@@ -1643,16 +1645,15 @@ function sylSplit(word, lang) {
   // =============== Tempo aus Toneinsätzen schätzen ===============
   // Sucht das Tempo (60–180 BPM), in dessen Sechzehntel-Raster die Abstände der Toneinsätze am besten passen.
   function estimateTempo(phrases) {
-    const on = []; phrases.forEach(p => p.notes.forEach(n => on.push(n.start)));
-    on.sort((a, b) => a - b);
     const ioi = [];
-    for (let i = 1; i < on.length; i++) { const d = on[i] - on[i - 1]; if (d > .07 && d < 2.5) ioi.push(d); }
+    phrases.forEach(p => { const on = p.notes.map(n => n.start).sort((a, b) => a - b); for (let i = 1; i < on.length; i++) { const d = on[i] - on[i - 1]; if (d > .07 && d < 2.5) ioi.push(d); } });
     if (ioi.length < 4) return null;
     let best = null, bestScore = -1;
     for (let bpm = 60; bpm <= 180; bpm += .5) {
       const g = 15 / bpm; let fit = 0;
       // einfache Notenwerte (Sechzehntel, Achtel, Viertel, Halbe) passen besser als «krumme» (punktiert, Triolen-artig)
-      ioi.forEach(d => { const r = d / g, k = Math.max(1, Math.round(r)), err = Math.abs(r - k) / Math.min(k, 4), w = [2, 4, 8].includes(k) ? 1 : k === 1 ? .9 : [3, 6, 12, 16].includes(k) ? .8 : .65; fit += w * Math.exp(-(err * err) / (2 * .09 * .09)); });
+      // Abweichung in Sekunden (Gesang schwankt etwa ±30 ms, unabhängig von der Notenlänge)
+      ioi.forEach(d => { const k = Math.max(1, Math.round(d / g)), err = Math.abs(d - k * g), w = [2, 4, 8].includes(k) ? 1 : k === 1 ? .9 : [3, 6, 12, 16].includes(k) ? .8 : .65; fit += w * Math.exp(-(err * err) / (2 * .03 * .03)); });
       fit /= ioi.length;
       const prior = Math.exp(-Math.pow(Math.log2(bpm / 100), 2) / (2 * .55 * .55));   // leichte Vorliebe für mittlere Tempi
       const score = fit * (.75 + .25 * prior);
@@ -1680,20 +1681,23 @@ function sylSplit(word, lang) {
   }
   function metroStop() { clearInterval(Metro.timer); Metro.timer = null; }
   let taps = [];
-  function setBpm(v) {
-    const s = song(); s.bpm = v ? Math.max(40, Math.min(240, Math.round(v))) : null; persist();
+  function setBpm(v, auto) {
+    const s = song(); s.bpm = v ? Math.max(40, Math.min(240, Math.round(v))) : null;
+    s.bpmAuto = !!auto; persist();
     renderTempo(); if ($("viewSheet").style.display !== "none") renderSheet();
-    const tb = $("tempoBtn"); if (tb) tb.textContent = "♩ " + (s.bpm || "Tempo");
+    const tb = $("tempoBtn"); if (tb) tb.textContent = "♩ " + (s.bpm ? s.bpm + (s.bpmAuto !== false ? " auto" : "") : "Tempo");
   }
   function tempoWidget(box, withMetro) {
     const s = song();
     box.innerHTML = `Tempo <button class="btn sm" data-t="-">−</button><input type="number" inputmode="numeric" min="40" max="240" placeholder="–" value="${s.bpm || ""}"> BPM <button class="btn sm" data-t="+">＋</button>
       <button class="btn sm tap" data-t="tap" title="Im Takt antippen">Tap</button><button class="btn sm" data-t="half" title="Halbes Tempo">½</button><button class="btn sm" data-t="double" title="Doppeltes Tempo">×2</button>
+      <label class="toggle sm" title="Tempo aus deinen Aufnahmen erkennen, solange du keins von Hand eingibst"><input type="checkbox" data-t="auto"${s.bpmAuto !== false ? " checked" : ""}> automatisch</label>
       ${withMetro ? `<button class="btn sm${Metro.on ? " metro-on" : ""}" data-t="metro" title="Metronom beim Singen, Aufnehmen und Abspielen">♩ Metronom ${Metro.on ? "an" : "aus"}</button>` : ""}`;
-    const inp = box.querySelector("input");
+    const inp = box.querySelector('input[type="number"]');
     inp.onchange = () => setBpm(+inp.value || null);
+    box.querySelector('[data-t="auto"]').onchange = e => { if (e.target.checked) autoTempo(true); else { song().bpmAuto = false; persist(); renderTempo(); } };
     box.onclick = e => {
-      const t = e.target.dataset.t; if (!t) return; const b = song().bpm || 100;
+      const t = e.target.dataset.t; if (!t || t === "auto") return; const b = song().bpm || 100;
       if (t === "-") setBpm(b - 1); if (t === "+") setBpm(b + 1);
       if (t === "half") setBpm(b / 2); if (t === "double") setBpm(b * 2);
       if (t === "tap") {
@@ -1703,12 +1707,25 @@ function sylSplit(word, lang) {
       }
       if (t === "metro") {
         Metro.on = !Metro.on;
-        if (Metro.on && !song().bpm) { setBpm(100); toast("Tempo auf 100 BPM gesetzt – mit Tap oder −/＋ anpassen"); }
+        if (Metro.on && !song().bpm) { setBpm(100, true); toast("Tempo auf 100 BPM gesetzt – mit Tap oder −/＋ anpassen"); }
         if (Metro.on && (running || recState)) metroStart(); else if (!Metro.on) metroStop();
         renderTempo(); renderFocus();
         if (Metro.on) toast("Metronom an – am besten mit Kopfhörern singen");
       }
     };
+  }
+  // Tempo automatisch erkennen (solange nicht von Hand gesetzt)
+  function autoTempo(force) {
+    const s = song(); if (!s || (!force && s.bpmAuto === false)) return;
+    const phr = [];
+    s.sections.forEach(sec => {
+      (sec.memos || []).forEach(m => m.phrases.forEach(p => phr.push(p)));
+      sec.lines.forEach(l => { if (l.rh) { const n = l.rh.filter(Boolean).map(x => ({ start: x.t })); if (n.length > 2) phr.push({ notes: n }); } });
+    });
+    let v = estimateTempo(phr);
+    if (v && s.bpm) v = [v, Math.round(v / 2), v * 2].reduce((a, x) => Math.abs(x - s.bpm) < Math.abs(a - s.bpm) ? x : a);   // bleibt nah am bisherigen Tempo
+    if (v && v !== s.bpm) { setBpm(v, true); toast("Tempo automatisch erkannt: " + v + " BPM"); }
+    else { s.bpmAuto = true; persist(); renderTempo(); if (force && !v) toast("Noch zu wenig Aufnahmen, um das Tempo zu erkennen"); }
   }
   function renderTempo() {
     if ($("sheetTempo")) tempoWidget($("sheetTempo"), false);
