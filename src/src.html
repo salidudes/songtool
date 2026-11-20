@@ -213,7 +213,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v12</small></h1>
+    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v13</small></h1>
     <div class="settings">
       <button id="syncDot" title="Synchronisation">☁ aus</button>
       <button class="btn sm" id="settingsBtn" title="Einstellungen">⚙</button>
@@ -313,12 +313,14 @@
     </section>
     <section class="card">
       <div class="cardtitle">Daten sichern</div>
+      <!-- Klavier-Samples: tonejs-instruments (MIT) -->
       <div class="controls" style="justify-content:flex-start">
         <button class="btn sm" id="exportBtn">Alle Songs exportieren</button>
         <button class="btn sm" id="importBtn">Importieren</button>
         <input type="file" id="importFile" accept=".json,application/json" hidden>
       </div>
       <p class="hint">Sicherungskopie als Datei – zum Beispiel bevor du etwas Grösseres änderst.</p>
+      <p class="hint">Klavierklang: Flügel-Samples aus «tonejs-instruments» (MIT-Lizenz).</p>
     </section>
   </div>
 </div>
@@ -608,7 +610,7 @@
       const opts = TYPES.map(t => `<option${t === sec.type ? " selected" : ""}>${t}</option>`).join("");
       const lbl = secLabel(s, si), num = lbl !== sec.type ? lbl.slice(sec.type.length) : "";
       el.innerHTML = `<div class="sec-head"><select>${opts}</select><span class="num">${num}</span><span class="here">● hier wird notiert</span>
-          <span class="acts"><button class="btn sm ghost recbtn" data-a="rec" title="Memo aufnehmen">🎙</button>
+          <span class="acts"><button class="btn sm ghost" data-a="play" title="Teil mit Akkorden und Melodie anhören">▶</button><button class="btn sm ghost recbtn" data-a="rec" title="Memo aufnehmen">🎙</button>
           <button class="btn sm ghost" data-a="dup" title="Duplizieren">⧉</button>
           <button class="btn sm ghost" data-a="up" title="Nach oben">↑</button>
           <button class="btn sm ghost" data-a="del" title="Löschen">✕</button></span></div>
@@ -624,6 +626,7 @@
       el.querySelector(".acts").onclick = e => {
         const a = e.target.closest("[data-a]")?.dataset.a; if (!a) return;
         if (a === "rec") { setActive(si, s.active.s === si ? s.active.l : 0); toggleRecording(s, sec); return; }
+        if (a === "play") { pianoToggle(e.target.closest("[data-a]"), () => sectionEvents(s, sec)); return; }
         if (a === "sug") { let n = 0; sec.lines.forEach((_, li) => { if (suggestLine(si, li)) n++; }); renderPreview(si); toast(n ? "Akkorde vorgeschlagen" : "Dieser Teil hat noch keine Noten"); }
         if (a === "dup") { const c = JSON.parse(JSON.stringify(sec)); c.id = uid(); s.sections.splice(si + 1, 0, c); persist(); renderSections(); }
         if (a === "up" && si > 0) { [s.sections[si - 1], s.sections[si]] = [s.sections[si], s.sections[si - 1]]; if (s.active.s === si) s.active.s--; else if (s.active.s === si - 1) s.active.s++; persist(); renderSections(); }
@@ -670,7 +673,7 @@
       if (on && line.notes.length) {
         const t = document.createElement("div"); t.className = "ftools";
         t.innerHTML = '<button class="btn sm ghost" data-f="play">▶</button><button class="btn sm ghost" data-f="undo">⌫ letzten Ton</button>';
-        t.onclick = e => { const f = e.target.dataset.f; if (f === "undo") { line.notes.pop(); persist(); afterNotesChanged(si); } if (f === "play") playMelody(line.notes, e.target); e.stopPropagation(); };
+        t.onclick = e => { const f = e.target.dataset.f; if (f === "undo") { line.notes.pop(); persist(); afterNotesChanged(si); } if (f === "play") pianoToggle(e.target, () => lineEvents(s, line).ev); e.stopPropagation(); };
         row.appendChild(t);
       }
       row.onclick = () => setActive(si, li);
@@ -720,7 +723,7 @@
         });
         if (line.notes.length) {
           const p = document.createElement("button"); p.className = "btn sm ghost"; p.textContent = "▶"; p.title = "Zeile abspielen";
-          p.onclick = () => playMelody(line.notes, p); st.appendChild(p);
+          p.onclick = () => pianoToggle(p, () => lineEvents(s, line).ev); st.appendChild(p);
         }
         el.appendChild(st);
       }
