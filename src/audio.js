@@ -139,7 +139,10 @@
           const L = seg.ref.line; L.rh = L.rh || [];
           const prev = L.rh[seg.ref.idx - 1];
           if (seg.ref.idx > 0 && (!prev || seg.start / 1000 - prev.t > 4 || seg.start / 1000 < prev.t)) L.rh = [];   // neuer Durchgang: nicht mit altem Rhythmus mischen
-          L.rh[seg.ref.idx] = seg.rh = { t: seg.start / 1000, d: null, a: Metro.timer ? Metro.anchor : null };
+          // Einsatz um die Erkennungs-Verzögerung früher; mit Metronom zusätzlich die Ton-Ausgabe-Verzögerung
+          // (du singst auf den Klick, den du hörst – der kommt etwas nach dem geplanten Zeitpunkt)
+          const lat = .03 + (Metro.timer ? (ctx.outputLatency || .02) + (ctx.baseLatency || .01) : 0);
+          L.rh[seg.ref.idx] = seg.rh = { t: seg.start / 1000 - lat, d: null, a: Metro.timer ? Metro.anchor : null };
         }
       } else if (seg && seg.added && seg.ref) {
         // früh notierter Ton: korrigieren, solange er sich noch einpendelt

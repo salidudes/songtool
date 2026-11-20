@@ -47,6 +47,13 @@
   .dock-mid .meter { margin: 0; height: 24px; }
   #startBtn { padding: 12px 14px; font-size: 15px; white-space: nowrap; }
   .recon { background: #d64545 !important; border-color: #d64545 !important; color: #fff !important; }
+  .tappad { position: fixed; inset: 0; z-index: 60; background: rgba(12,13,16,.985); display: flex; flex-direction: column; padding: 16px; gap: 12px; }
+  .tappad[hidden] { display: none; }
+  .tappad .area { flex: 1; border: 2px dashed #4a5060; border-radius: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; user-select: none; touch-action: manipulation; cursor: pointer; transition: background .08s, border-color .08s; }
+  .tappad .area.hit { background: rgba(240,180,41,.18); border-color: #f0b429; }
+  .tappad .bpmbig { font-size: 72px; font-weight: 700; font-variant-numeric: tabular-nums; color: #eceef2; line-height: 1; }
+  .tappad .hint2 { color: #8b92a1; font-size: 15px; text-align: center; }
+  .tappad .bar { display: flex; gap: 8px; justify-content: center; }
   .tempo-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
   .tempo { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
   .tempo input { width: 58px; text-align: center; padding: 5px 4px; font-size: 15px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; }
@@ -218,7 +225,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v17</small></h1>
+    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v18</small></h1>
     <div class="settings">
       <button id="syncDot" title="Synchronisation">☁ aus</button>
       <button class="btn sm" id="settingsBtn" title="Einstellungen">⚙</button>
@@ -340,6 +347,10 @@
     <div class="prow"><input type="text" id="pCustom" placeholder="Eigener Akkord, z.B. Fmaj7, Dsus4, G/H"><button class="btn" id="pCustomOk">Setzen</button></div>
     <div class="prow"><button class="btn" id="pRemove" style="flex:1">Akkord entfernen</button><button class="btn" id="pCancel" style="flex:1">Abbrechen</button></div>
   </div>
+</div>
+<div class="tappad" id="tapPad" hidden>
+  <div class="area" id="tapArea"><div class="bpmbig" id="tapBpm">–</div><div class="hint2" id="tapHint">Hier im Takt tippen – mindestens 3×</div></div>
+  <div class="bar"><button class="btn" id="tapReset">Neu anfangen</button><button class="btn primary" id="tapDone">Fertig</button></div>
 </div>
 <div class="overlay hidden" id="memoDlg" style="align-items:center;padding:12px">
   <div class="picker" style="border-radius:16px;max-height:calc(100vh - 24px);overflow-y:auto">
@@ -1219,7 +1230,8 @@
       const st = recState; recState = null; if (running) stop(); paintRecBtn(); dockState(); renderFocus();
       const blob = new Blob(chunks, { type: rec.mimeType || mime || "audio/webm" });
       if (blob.size < 2000) { toast("Aufnahme zu kurz"); return; }
-      newMemoFromBlob(st.songId, st.secId, blob, st.metro ? { bpm: st.metro.bpm, a: st.metro.a - st.p0 } : null);
+      const lat = (ac().outputLatency || .02) + (ac().baseLatency || .01) + .02;   // du singst auf den gehörten Klick
+      newMemoFromBlob(st.songId, st.secId, blob, st.metro ? { bpm: st.metro.bpm, a: st.metro.a - st.p0 + lat } : null);
     };
     rec.start(250);
     recState = { rec, songId: s.id, secId: sec.id, t0: Date.now(), p0: performance.now() / 1000, tick: setInterval(paintRecBtn, 500) };
@@ -1395,6 +1407,28 @@
     return bestScore > .55 ? Math.round(best) : null;
   }
 
+  // Grosse Tap-Fläche: im Takt tippen, Tempo wird laufend berechnet
+  const TapPad = (() => {
+    let taps = [], onSet = null, last = null;
+    const area = () => document.getElementById("tapArea");
+    function show(cb, current) { onSet = cb; taps = []; last = current || null; document.getElementById("tapBpm").textContent = current || "–"; document.getElementById("tapHint").textContent = "Hier im Takt tippen – mindestens 3×"; document.getElementById("tapPad").hidden = false; }
+    function hide() { document.getElementById("tapPad").hidden = true; }
+    document.getElementById("tapArea").addEventListener("pointerdown", e => {
+      e.preventDefault();
+      const now = performance.now(); if (taps.length && now - taps[taps.length - 1] > 2500) taps = [];
+      taps.push(now); if (taps.length > 9) taps.shift();
+      const a = area(); a.classList.add("hit"); setTimeout(() => a.classList.remove("hit"), 90);
+      if (taps.length >= 3) {
+        const iv = []; for (let i = 1; i < taps.length; i++) iv.push(taps[i] - taps[i - 1]);
+        const s = [...iv].sort((x, y) => x - y), med = s[s.length >> 1], ok = iv.filter(x => Math.abs(x - med) < med * .25);
+        const bpm = Math.round(60000 / (ok.reduce((x, y) => x + y, 0) / ok.length));
+        if (bpm >= 40 && bpm <= 240) { last = bpm; document.getElementById("tapBpm").textContent = bpm; document.getElementById("tapHint").textContent = taps.length + " Taps – weiter tippen wird genauer"; if (onSet) onSet(bpm); }
+      } else document.getElementById("tapHint").textContent = (3 - taps.length) + "× weiter tippen …";
+    });
+    document.getElementById("tapReset").onclick = () => { taps = []; document.getElementById("tapBpm").textContent = "–"; document.getElementById("tapHint").textContent = "Hier im Takt tippen – mindestens 3×"; };
+    document.getElementById("tapDone").onclick = hide;
+    return { show, hide };
+  })();
   // =============== Tempo-Regler, Tap, Metronom ===============
   const Metro = { on: false, timer: null, next: 0, n: 0 };
   function clickAt(t, accent) {
@@ -1424,20 +1458,18 @@
     const s = song();
     box.innerHTML = `Tempo <button class="btn sm" data-t="-">−</button><input type="number" inputmode="numeric" min="40" max="240" placeholder="–" value="${s.bpm || ""}"> BPM <button class="btn sm" data-t="+">＋</button>
       <button class="btn sm tap" data-t="tap" title="Im Takt antippen">Tap</button><button class="btn sm" data-t="half" title="Halbes Tempo">½</button><button class="btn sm" data-t="double" title="Doppeltes Tempo">×2</button>
+      <label class="toggle sm" title="Raster, auf das gesungene Töne beim Abspielen gezogen werden">Raster <select data-t="grid"><option value="8"${(s.grid || "8") === "8" ? " selected" : ""}>Achtel</option><option value="16"${s.grid === "16" ? " selected" : ""}>Sechzehntel</option><option value="off"${s.grid === "off" ? " selected" : ""}>aus (wie gesungen)</option></select></label>
       <label class="toggle sm" title="Tempo aus deinen Aufnahmen erkennen, solange du keins von Hand eingibst"><input type="checkbox" data-t="auto"${s.bpmAuto !== false ? " checked" : ""}> automatisch</label>
       ${withMetro ? `<button class="btn sm${Metro.on ? " metro-on" : ""}" data-t="metro" title="Metronom beim Singen, Aufnehmen und Abspielen">♩ Metronom ${Metro.on ? "an" : "aus"}</button>` : ""}`;
     const inp = box.querySelector('input[type="number"]');
     inp.onchange = () => setBpm(+inp.value || null);
+    box.querySelector('[data-t="grid"]').onchange = e => { song().grid = e.target.value; persist(); renderTempo(); };
     box.querySelector('[data-t="auto"]').onchange = e => { if (e.target.checked) autoTempo(true); else { song().bpmAuto = false; persist(); renderTempo(); } };
     box.onclick = e => {
-      const t = e.target.dataset.t; if (!t || t === "auto") return; const b = song().bpm || 100;
+      const t = e.target.dataset.t; if (!t || t === "auto" || t === "grid") return; const b = song().bpm || 100;
       if (t === "-") setBpm(b - 1); if (t === "+") setBpm(b + 1);
       if (t === "half") setBpm(b / 2); if (t === "double") setBpm(b * 2);
-      if (t === "tap") {
-        const now = performance.now(); taps = taps.filter(x => now - x < 2500); taps.push(now);
-        e.target.classList.add("hit"); setTimeout(() => e.target.classList.remove("hit"), 120);
-        if (taps.length >= 3) { const iv = []; for (let i = 1; i < taps.length; i++) iv.push(taps[i] - taps[i - 1]); setBpm(60000 / (iv.slice(-4).reduce((a, x) => a + x, 0) / Math.min(4, iv.length))); }
-      }
+      if (t === "tap") TapPad.show(v => setBpm(v), song().bpm);
       if (t === "metro") {
         Metro.on = !Metro.on;
         if (Metro.on && !song().bpm) { setBpm(100, true); toast("Tempo auf 100 BPM gesetzt – mit Tap oder −/＋ anpassen"); }
@@ -1467,7 +1499,7 @@
   // Memo-Töne im Song-Tempo (auf Sechzehntel gerundet)
   function timedEvents(notes, bpm, anchor) {
     if (!notes.length) return [];
-    if (bpm) { const q = quantize(notes.map(n => ({ t: n.start, d: n.end - n.start })), bpm, anchor == null ? null : anchor); return notes.map((n, i) => ({ t: q[i].t, dur: q[i].dur, melody: [n.m], chord: null })); }
+    if (bpm) { const q = quantize(notes.map(n => ({ t: n.start, d: n.end - n.start })), bpm, anchor == null ? null : anchor, song().grid || "8"); return notes.map((n, i) => ({ t: q[i].t, dur: q[i].dur, melody: [n.m], chord: null })); }
     const b = notes[0].start, g = bpm ? 15 / bpm : 0;
     return notes.map(n => {
       const t = n.start - b, d = Math.max(.12, n.end - n.start);
