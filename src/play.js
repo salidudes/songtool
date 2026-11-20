@@ -154,15 +154,20 @@
   const chordEvName = c => c.txt != null ? { name: c.txt, german: settings.naming === "de" } : { name: intl(c.r, false) + SUF[c.q], german: false };
   function lineEvents(s, line, t0 = 0) {
     const us = units(line, s.lang), mel = line.notes.length > 0, ev = []; let t = t0;
+    const e8 = s.bpm ? 30 / s.bpm : 0;   // mit Tempo: jede Silbe/Note eine Achtel
     us.forEach((u, i) => {
-      const dur = !mel ? .34 : u.notes.length ? u.notes.length * .42 : .3;
+      const dur = e8 ? Math.max(1, u.notes.length) * e8 : !mel ? .34 : u.notes.length ? u.notes.length * .42 : .3;
       ev.push({ t, dur, melody: u.notes, chord: line.chords[i] ? chordEvName(line.chords[i]) : null }); t += dur;
     });
     return { ev, t };
   }
   function sectionEvents(s, sec) {
     let ev = [], t = 0;
-    sec.lines.filter(l => l.text.trim() || l.notes.length).forEach(l => { const r = lineEvents(s, l, t); ev = ev.concat(r.ev); t = r.t + .35; });
+    const beat = s.bpm ? 60 / s.bpm : 0;
+    sec.lines.filter(l => l.text.trim() || l.notes.length).forEach(l => {
+      const r = lineEvents(s, l, t); ev = ev.concat(r.ev);
+      t = beat ? Math.ceil((r.t + beat * .5) / beat) * beat : r.t + .35;   // mit Tempo: nächste Zeile auf dem nächsten Schlag
+    });
     return ev;
   }
   async function pianoToggle(btn, build) {
@@ -172,6 +177,16 @@
       const lbl = btn.innerHTML; btn.innerHTML = "⏳"; const ok = await Piano.load(); btn.innerHTML = lbl;
       if (!ok) { toast("Klavier konnte nicht geladen werden"); return; }
     }
-    togglePlay(btn, () => { const ev = build(); if (!ev.length) { toast("Nichts zum Abspielen"); return 0; } return pianoPlay(ev, false, x => voices.push(x)); });
+    togglePlay(btn, () => {
+      const ev = build(); if (!ev.length) { toast("Nichts zum Abspielen"); return 0; }
+      const bpm = song().bpm;
+      if (!(Metro.on && bpm)) return pianoPlay(ev, false, x => voices.push(x));
+      // Metronom: einen Takt einzählen, dann mitklicken
+      const beat = 60 / bpm, pre = 4 * beat, c = ac(), t0 = c.currentTime + .08;
+      ev.forEach(e => e.t += pre);
+      const dur = pianoPlay(ev, false, x => voices.push(x));
+      for (let i = 0; i * beat < dur - .3; i++) voices.push(clickAt(t0 + i * beat, i % 4 === 0));
+      return dur;
+    });
   }
   setTimeout(() => Piano.load(), 1500);

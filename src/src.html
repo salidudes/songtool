@@ -47,6 +47,11 @@
   .dock-mid .meter { margin: 0; height: 24px; }
   #startBtn { padding: 12px 14px; font-size: 15px; white-space: nowrap; }
   .recon { background: #d64545 !important; border-color: #d64545 !important; color: #fff !important; }
+  .tempo-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  .tempo { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .tempo input { width: 58px; text-align: center; padding: 5px 4px; font-size: 15px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; }
+  .tempo .tap.hit { border-color: var(--accent); color: var(--accent); }
+  .metro-on { border-color: var(--accent) !important; color: var(--accent) !important; }
   .focus { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; text-align: left; }
   .focus-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; }
   .focus-head b { color: var(--accent); }
@@ -213,7 +218,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v13</small></h1>
+    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v14</small></h1>
     <div class="settings">
       <button id="syncDot" title="Synchronisation">☁ aus</button>
       <button class="btn sm" id="settingsBtn" title="Einstellungen">⚙</button>
@@ -250,6 +255,7 @@
       <canvas id="trace"></canvas>
       <div class="level"><span>Mikro</span><div class="lvl"><div id="levelBar"></div></div></div>
       <div class="err" id="err"></div>
+      <div class="tempo-row" id="tempoRow" hidden></div>
       <div class="focus" id="focus"></div>
     </section>
 
@@ -269,6 +275,7 @@
   <div id="viewSheet" style="display:none;flex-direction:column;gap:12px">
     <div class="controls noprint">
       <span class="tp" style="color:var(--muted);font-size:14px">Tonart <select id="keySel"></select></span>
+      <span class="tp tempo" id="sheetTempo" style="color:var(--muted);font-size:14px"></span>
       <span class="tp" style="color:var(--muted);font-size:14px">Transponieren <button class="btn sm" data-tp="-1">−</button><button class="btn sm" data-tp="1">＋</button></span>
       <label class="toggle"><input type="checkbox" id="showNotes"> Noten anzeigen</label>
     </div>
@@ -373,7 +380,7 @@
 
   function migrate(s) {
     if (!s.sections) { s.sections = [{ id: uid(), type: "Verse", lines: s.lines?.length ? s.lines : [newLine()] }]; s.active = { s: 0, l: typeof s.active === "number" ? s.active : 0 }; delete s.lines; }
-    s.lang = s.lang || "de"; s.key = s.key || "auto"; s.updatedAt = s.updatedAt || Date.now();
+    s.lang = s.lang || "de"; s.key = s.key || "auto"; s.updatedAt = s.updatedAt || Date.now(); if (s.bpm === undefined) s.bpm = null;
     if (!s.active || typeof s.active !== "object") s.active = { s: 0, l: 0 };
     s.sections.forEach(sec => { sec.id = sec.id || uid(); sec.memos = sec.memos || []; if (!sec.lines.length) sec.lines.push(newLine()); sec.lines.forEach(l => { l.chords = l.chords || {}; l.notes = l.notes || []; l.text = l.text || ""; }); });
     if (!s.sections.length) s.sections.push(newSection("Verse"));
@@ -660,10 +667,12 @@
     const si = s.active.s, sec = s.sections[si], box = $("focus"); if (!sec) return;
     const recOn = typeof recState !== "undefined" && recState && recState.secId === sec.id;
     box.innerHTML = `<div class="focus-head"><b>${esc(secLabel(s, si))}</b><span class="fz">Zeile ${s.active.l + 1}</span>
+      <button class="btn sm${Metro.on ? " metro-on" : ""}" id="tempoBtn" title="Tempo und Metronom">♩ ${s.bpm || "Tempo"}</button>
       <label class="toggle sm" title="Gehaltene Töne automatisch in die aktive Zeile schreiben"><input type="checkbox" id="autoAdd"${settings.auto ? " checked" : ""}> mitschreiben</label>
       <button class="btn sm${recOn ? " recon" : ""}" id="focusRec" title="Memo für diesen Teil aufnehmen">${recOn ? "■ " + fmtT((Date.now() - recState.t0) / 1000) : "🎙 Memo"}</button></div><div class="focus-lines"></div>`;
     $("autoAdd").onchange = e => { settings.auto = e.target.checked; saveSettings(); };
     $("focusRec").onclick = () => toggleRecording(s, sec);
+    $("tempoBtn").onclick = () => { const r = $("tempoRow"); r.hidden = !r.hidden; if (!r.hidden) renderTempo(); };
     const fl = box.querySelector(".focus-lines"); let act = null;
     sec.lines.forEach((line, li) => {
       const on = li === s.active.l;
@@ -682,7 +691,11 @@
     if (!sec.lines.some(l => l.text.trim())) fl.insertAdjacentHTML("afterbegin", '<div class="empty" style="padding:2px 4px">Noch kein Text in diesem Teil.</div>');
     if (act) requestAnimationFrame(() => { const top = act.offsetTop - fl.offsetTop; if (top < fl.scrollTop || top + act.offsetHeight > fl.scrollTop + fl.clientHeight) fl.scrollTop = top - 8; });
   }
-  function dockState() { $("dock").classList.toggle("sticky", running || (typeof recState !== "undefined" && !!recState)); }
+  function dockState() {
+    const live = running || (typeof recState !== "undefined" && !!recState);
+    $("dock").classList.toggle("sticky", live);
+    if (live && Metro.on && song().bpm) metroStart(); else if (!playBtn) metroStop();
+  }
 
   function lsHTML(line, lang, editable, joined) {
     const us = units(line, lang);
@@ -736,7 +749,7 @@
   function refreshAll() {
     const s = song();
     $("title").value = s.title;
-    renderSongSel(); refreshKey(); renderSections();
+    renderSongSel(); refreshKey(); renderSections(); renderTempo();
     if (sheetVisible()) renderSheet();
     if (!running) drawTrace(performance.now());
   }
@@ -801,7 +814,7 @@
       if (!lines.length) return;
       body += `<div class="sh">[${esc(secLabel(s, si))}]</div>` + lines.map(l => `<div class="ls${Object.keys(l.chords).length ? "" : " noch"}">${lsHTML(l, s.lang, false, !settings.showNotes)}</div>`).join("");
     });
-    card.innerHTML = `<h2>${esc(s.title || "Ohne Titel")}</h2><div class="sub">${k ? "Tonart: " + keyName(k) : "Tonart: –"}</div>` +
+    card.innerHTML = `<h2>${esc(s.title || "Ohne Titel")}</h2><div class="sub">${k ? "Tonart: " + keyName(k) : "Tonart: –"}${s.bpm ? " · ♩ = " + s.bpm + " BPM" : ""}</div>` +
       (body || '<p class="hint">Noch leer. Schreib im Tab «Schreiben» Text und Noten.</p>');
   }
   function lineText(line, lang) {
@@ -816,7 +829,7 @@
   }
   function sheetText() {
     const s = song(), k = effKey(s);
-    let out = (s.title || "Ohne Titel") + "\n" + (k ? "Tonart: " + keyName(k) + "\n" : "");
+    let out = (s.title || "Ohne Titel") + "\n" + (k ? "Tonart: " + keyName(k) + "\n" : "") + (s.bpm ? "Tempo: " + s.bpm + " BPM\n" : "");
     s.sections.forEach((sec, si) => {
       const lines = sec.lines.filter(l => l.text.trim());
       if (!lines.length) return;
@@ -863,6 +876,7 @@
     const kn = k ? intl(k.t, fl) + (k.mode === "maj" ? " major" : " minor") : "noch unbekannt";
     let out = `SONG: ${s.title || "Ohne Titel"}\n`;
     out += `Tonart: ${kn} (${s.key === "auto" ? "von der App aus meiner Melodie geschätzt" : "von mir festgelegt"})\n`;
+    if (s.bpm) out += `Tempo: ${s.bpm} BPM\n`;
     out += `Sprache: ${s.lang === "en" ? "Englisch" : "Deutsch"}\n\n`;
     out += `Legende:\n- «Melodie» = meine GESUNGENE Melodie, Silbe für Silbe (Silbe=Note). Oktave wissenschaftlich, C4 = mittleres C. Mehrere Noten auf einer Silbe sind mit ~ verbunden.\n`;
     out += `- «Akkorde» = Begleitakkorde, die ich gesetzt oder die App vorgeschlagen hat; «@ Silbe» = dort wechselt der Akkord.\n`;
@@ -1021,11 +1035,12 @@
   }
   const normSyl = x => x.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
   function importPartner(txt) {
-    const out = { title: "", key: "auto", lang: "de", sections: [] }; let sec = null, last = null, legend = false, missing = 0;
+    const out = { title: "", key: "auto", lang: "de", bpm: null, sections: [] }; let sec = null, last = null, legend = false, missing = 0;
     txt.replace(/\r/g, "").split("\n").forEach(raw => {
       const l = raw.replace(/\s+$/, ""); let m;
       if ((m = l.match(/^SONG:\s*(.*)$/))) { out.title = m[1].trim(); return; }
       if ((m = l.match(/^Tonart:\s*(.*)$/))) { out.key = parseKeyText(m[1]); return; }
+      if ((m = l.match(/^Tempo:\s*(\d+)/))) { out.bpm = +m[1]; return; }
       if ((m = l.match(/^Sprache:\s*(.*)$/))) { out.lang = /engl/i.test(m[1]) ? "en" : "de"; return; }
       if (/^Legende:/.test(l)) { legend = true; return; }
       if (legend) { if (/^-\s/.test(l)) return; legend = false; }
@@ -1071,10 +1086,10 @@
     if (s) {
       // gleiche Memos (Teil + Name) behalten ihre ID → die Aufnahme auf diesem Gerät bleibt verknüpft
       const oldIds = {}; s.sections.forEach((sec, i) => (sec.memos || []).forEach(m => oldIds[secLabel(s, i) + "|" + m.name] = m.id));
-      Object.assign(s, { key: p.key !== "auto" ? p.key : s.key, lang: p.lang, sections: p.sections, active: { s: 0, l: 0 } });
+      Object.assign(s, { key: p.key !== "auto" ? p.key : s.key, lang: p.lang, bpm: p.bpm || s.bpm || null, sections: p.sections, active: { s: 0, l: 0 } });
       s.sections.forEach((sec, i) => (sec.memos || []).forEach(m => { const id = oldIds[secLabel(s, i) + "|" + m.name]; if (id) m.id = id; }));
     }
-    else { s = Object.assign(newSong(p.title || "Song aus Partner"), { key: p.key, lang: p.lang, sections: p.sections }); songs.push(s); }
+    else { s = Object.assign(newSong(p.title || "Song aus Partner"), { key: p.key, lang: p.lang, bpm: p.bpm || null, sections: p.sections }); songs.push(s); }
     curId = s.id; persist(); refreshAll();
     toast((s ? "Song übernommen" : "") + (missing ? " · " + missing + " Akkord(e) ohne passende Silbe" : ""));
   };
@@ -1226,8 +1241,9 @@
       $("memoProg").hidden = true;
       const cnt = phr.reduce((a, p) => a + p.notes.length, 0);
       phr.forEach((p, k) => { p.target = k < sec.lines.length ? String(k) : "new"; p.notes = p.notes.map(n => ({ m: n.m, start: Math.round(n.start * 100) / 100, end: Math.round(n.end * 100) / 100 })); });
+      const bpmGuess = estimateTempo(phr);
       const time = new Date().toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" });
-      memoEdit = { songId, secId, blob, isNew: true, memo: { id: uid(), name: secLabel(s, s.sections.indexOf(sec)) + " " + time, kind: "gesang", apply: cnt > 0, applied: false, created: Date.now(), dur: Math.round(audio.duration * 10) / 10, phrases: phr } };
+      memoEdit = { songId, secId, blob, isNew: true, bpm: bpmGuess, takeBpm: !!bpmGuess && !s.bpm, memo: { id: uid(), name: secLabel(s, s.sections.indexOf(sec)) + " " + time, kind: "gesang", apply: cnt > 0, applied: false, created: Date.now(), dur: Math.round(audio.duration * 10) / 10, phrases: phr } };
       $("memoInfo").textContent = cnt ? `${fmtT(audio.duration)} · ${cnt} Töne in ${phr.length} Phrase(n) erkannt` : `${fmtT(audio.duration)} · keine Töne erkannt – das Memo kannst du trotzdem speichern`;
       renderMemoDlg(); $("memoOk").disabled = false;
     } catch (e) {
@@ -1251,12 +1267,14 @@
       ${M.kind === "gesang" && M.phrases.length ? `<label class="toggle"><input type="checkbox" id="mApply"${M.apply ? " checked" : ""}> Töne auf die Textzeilen verteilen</label>` : ""}
       ${M.kind === "gesang" && M.apply ? `<label class="toggle"><input type="checkbox" id="mReplace" checked> Bestehende Melodie der Zeilen ersetzen</label>` : ""}
       <div class="sub" style="margin:0">${M.kind === "gesang" ? "Gesang gehört zu den Textzeilen dieses Teils." : "Wird als eigenes Memo bei diesem Teil gespeichert, unabhängig vom Text."}</div>
+      ${memoEdit.bpm ? `<label class="toggle"><input type="checkbox" id="mBpm"${memoEdit.takeBpm ? " checked" : ""}> Tempo ≈ ${memoEdit.bpm} BPM erkannt – als Song-Tempo übernehmen${s.bpm ? " (bisher " + s.bpm + ")" : ""}</label>` : ""}
       ${memoEdit.blob ? '<div><button class="btn sm" id="mPlayAll">▶ Aufnahme anhören</button></div>' : ""}`;
     box.appendChild(head);
     $("mName").value = M.name; $("mName").oninput = e => M.name = e.target.value;
     $("mKind").onchange = e => { M.kind = e.target.value; M.apply = M.kind === "gesang"; renderMemoDlg(); };
     const ap = $("mApply"); if (ap) ap.onchange = e => { M.apply = e.target.checked; renderMemoDlg(); };
     const pa = $("mPlayAll"); if (pa) pa.onclick = () => playBlob(memoEdit.blob, pa);
+    const mb = $("mBpm"); if (mb) mb.onchange = e => memoEdit.takeBpm = e.target.checked;
     const map = M.kind === "gesang" && M.apply;
     M.phrases.forEach((p, k) => {
       const el = document.createElement("div"); el.className = "phr" + (map && p.target === "skip" ? " off" : "");
@@ -1275,7 +1293,7 @@
       });
       const sel = el.querySelector("select"); if (sel) sel.onchange = e => { p.target = e.target.value; renderMemoDlg(); };
       const ob = el.querySelector('[data-p="orig"]'); if (ob) ob.onclick = () => playBlob(memoEdit.blob, ob, t0, t1);
-      const sb = el.querySelector('[data-p="syn"]'); sb.onclick = () => playTimed(p.notes, sb);
+      const sb = el.querySelector('[data-p="syn"]'); sb.onclick = () => pianoToggle(sb, () => timedEvents(p.notes, s.bpm));
       box.appendChild(el);
     });
   }
@@ -1284,6 +1302,7 @@
     stopAll();
     const { s, sec } = findSec(memoEdit.songId, memoEdit.secId); if (!sec) return;
     const M = memoEdit.memo; M.name = (M.name || "").trim() || KIND[M.kind];
+    if (memoEdit.takeBpm && memoEdit.bpm) { s.bpm = memoEdit.bpm; renderTempo(); }
     let used = 0;
     if (M.kind === "gesang" && M.apply) {
       const replace = $("mReplace") ? $("mReplace").checked : true, touched = new Set();
@@ -1319,7 +1338,7 @@
       d.querySelector(".memo-acts").onclick = e => {
         const btn = e.target.closest("[data-m]"); if (!btn) return; const a = btn.dataset.m;
         if (a === "orig" && d._blob) playBlob(d._blob, btn);
-        if (a === "syn") playTimed(memo.phrases.flatMap(p => p.notes), btn);
+        if (a === "syn") pianoToggle(btn, () => timedEvents(memo.phrases.flatMap(p => p.notes), s.bpm));
         if (a === "edit") editMemo(s, sec, memo);
         if (a === "save" && d._blob) {
           const ext = /mp4|aac|m4a/.test(d._blob.type) ? "m4a" : /ogg/.test(d._blob.type) ? "ogg" : "webm";
@@ -1346,6 +1365,89 @@
       t += .6; return { notes };
     }).filter(p => p.notes.length);
     return { id: uid(), name: m[1], kind: KIND_BY_LABEL[m[2].trim().toLowerCase()] || "andere", applied: /verteilt/.test(m[3] || ""), created: Date.now(), dur: Math.round(t * 10) / 10, phrases };
+  }
+
+  // =============== Tempo aus Toneinsätzen schätzen ===============
+  // Sucht das Tempo (60–180 BPM), in dessen Sechzehntel-Raster die Abstände der Toneinsätze am besten passen.
+  function estimateTempo(phrases) {
+    const on = []; phrases.forEach(p => p.notes.forEach(n => on.push(n.start)));
+    on.sort((a, b) => a - b);
+    const ioi = [];
+    for (let i = 1; i < on.length; i++) { const d = on[i] - on[i - 1]; if (d > .07 && d < 2.5) ioi.push(d); }
+    if (ioi.length < 4) return null;
+    let best = null, bestScore = -1;
+    for (let bpm = 60; bpm <= 180; bpm += .5) {
+      const g = 15 / bpm; let fit = 0;
+      // einfache Notenwerte (Sechzehntel, Achtel, Viertel, Halbe) passen besser als «krumme» (punktiert, Triolen-artig)
+      ioi.forEach(d => { const r = d / g, k = Math.max(1, Math.round(r)), err = Math.abs(r - k) / Math.min(k, 4), w = [2, 4, 8].includes(k) ? 1 : k === 1 ? .9 : [3, 6, 12, 16].includes(k) ? .8 : .65; fit += w * Math.exp(-(err * err) / (2 * .09 * .09)); });
+      fit /= ioi.length;
+      const prior = Math.exp(-Math.pow(Math.log2(bpm / 100), 2) / (2 * .55 * .55));   // leichte Vorliebe für mittlere Tempi
+      const score = fit * (.75 + .25 * prior);
+      if (score > bestScore) { bestScore = score; best = bpm; }
+    }
+    return bestScore > .55 ? Math.round(best) : null;
+  }
+
+  // =============== Tempo-Regler, Tap, Metronom ===============
+  const Metro = { on: false, timer: null, next: 0, n: 0 };
+  function clickAt(t, accent) {
+    const c = ac(), o = c.createOscillator(), g = c.createGain();
+    o.type = "square"; o.frequency.value = accent ? 1700 : 1150;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(accent ? .22 : .13, t + .002); g.gain.exponentialRampToValueAtTime(.001, t + .045);
+    o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + .06); return o;
+  }
+  function metroStart() {
+    if (Metro.timer) return;
+    const c = ac(); Metro.next = c.currentTime + .1; Metro.n = 0;
+    Metro.timer = setInterval(() => {
+      const bpm = song().bpm; if (!bpm) return;
+      while (Metro.next < c.currentTime + .15) { clickAt(Metro.next, Metro.n % 4 === 0); Metro.next += 60 / bpm; Metro.n++; }
+    }, 25);
+  }
+  function metroStop() { clearInterval(Metro.timer); Metro.timer = null; }
+  let taps = [];
+  function setBpm(v) {
+    const s = song(); s.bpm = v ? Math.max(40, Math.min(240, Math.round(v))) : null; persist();
+    renderTempo(); if ($("viewSheet").style.display !== "none") renderSheet();
+    const tb = $("tempoBtn"); if (tb) tb.textContent = "♩ " + (s.bpm || "Tempo");
+  }
+  function tempoWidget(box, withMetro) {
+    const s = song();
+    box.innerHTML = `Tempo <button class="btn sm" data-t="-">−</button><input type="number" inputmode="numeric" min="40" max="240" placeholder="–" value="${s.bpm || ""}"> BPM <button class="btn sm" data-t="+">＋</button>
+      <button class="btn sm tap" data-t="tap" title="Im Takt antippen">Tap</button><button class="btn sm" data-t="half" title="Halbes Tempo">½</button><button class="btn sm" data-t="double" title="Doppeltes Tempo">×2</button>
+      ${withMetro ? `<button class="btn sm${Metro.on ? " metro-on" : ""}" data-t="metro" title="Metronom beim Singen, Aufnehmen und Abspielen">♩ Metronom ${Metro.on ? "an" : "aus"}</button>` : ""}`;
+    const inp = box.querySelector("input");
+    inp.onchange = () => setBpm(+inp.value || null);
+    box.onclick = e => {
+      const t = e.target.dataset.t; if (!t) return; const b = song().bpm || 100;
+      if (t === "-") setBpm(b - 1); if (t === "+") setBpm(b + 1);
+      if (t === "half") setBpm(b / 2); if (t === "double") setBpm(b * 2);
+      if (t === "tap") {
+        const now = performance.now(); taps = taps.filter(x => now - x < 2500); taps.push(now);
+        e.target.classList.add("hit"); setTimeout(() => e.target.classList.remove("hit"), 120);
+        if (taps.length >= 3) { const iv = []; for (let i = 1; i < taps.length; i++) iv.push(taps[i] - taps[i - 1]); setBpm(60000 / (iv.slice(-4).reduce((a, x) => a + x, 0) / Math.min(4, iv.length))); }
+      }
+      if (t === "metro") {
+        Metro.on = !Metro.on;
+        if (Metro.on && !song().bpm) { setBpm(100); toast("Tempo auf 100 BPM gesetzt – mit Tap oder −/＋ anpassen"); }
+        if (Metro.on && (running || recState)) metroStart(); else if (!Metro.on) metroStop();
+        renderTempo(); renderFocus();
+        if (Metro.on) toast("Metronom an – am besten mit Kopfhörern singen");
+      }
+    };
+  }
+  function renderTempo() {
+    if ($("sheetTempo")) tempoWidget($("sheetTempo"), false);
+    if ($("tempoRow") && !$("tempoRow").hidden) tempoWidget($("tempoRow"), true);
+  }
+  // Memo-Töne im Song-Tempo (auf Sechzehntel gerundet)
+  function timedEvents(notes, bpm) {
+    if (!notes.length) return [];
+    const b = notes[0].start, g = bpm ? 15 / bpm : 0;
+    return notes.map(n => {
+      const t = n.start - b, d = Math.max(.12, n.end - n.start);
+      return g ? { t: Math.round(t / g) * g, dur: Math.max(g, Math.round(d / g) * g), melody: [n.m], chord: null } : { t, dur: d, melody: [n.m], chord: null };
+    });
   }
 
   /*PLAY*/
