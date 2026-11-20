@@ -154,26 +154,31 @@
   const chordEvName = c => c.txt != null ? { name: c.txt, german: settings.naming === "de" } : { name: intl(c.r, false) + SUF[c.q], german: false };
   // Töne aufs Raster ziehen. items: [{t, d}] in Sekunden; anchor: Zeit einer «Eins» (Metronom) oder null
   // grid: "8" = Achtel, "16" = Sechzehntel, "off" = wie gesungen
-  function quantize(items, bpm, anchor, grid = "8", bpb = 4) {
+  function quantize(items, bpm, anchor, grid = "8", bpb = 4, spb = 4) {
     if (!items.length) return [];
     const beat = 60 / bpm;
     if (grid === "off") {   // nicht einrasten – nur ab Takt-/Schlaganfang ausrichten
       const ref = anchor != null ? anchor + Math.floor((items[0].t - anchor) / (bpb * beat)) * bpb * beat : items[0].t;
       return items.map((it, i) => ({ t: it.t - ref, dur: Math.max(.08, Math.min(it.d || beat / 2, i + 1 < items.length ? items[i + 1].t - it.t : 9)) }));
     }
-    const per = grid === "16" ? 4 : 2, g = beat / per;
+    const per = grid === "16" ? spb : Math.max(1, spb / 2), g = beat / per;
     let ref = anchor;
     if (ref == null) {   // ohne Metronom: das Raster suchen, in das die Einsätze am besten passen
       let bc = 1e9; const b = items[0].t;
       for (let k = 0; k < 24; k++) { const ph = b - k * g / 24; let c = 0; items.forEach(it => { const r = (it.t - ph) / g; c += Math.abs(r - Math.round(r)); }); if (c < bc) { bc = c; ref = ph; } }
     }
-    const pos = items.map(it => Math.round((it.t - ref) / g));
-    for (let i = 1; i < pos.length; i++) if (pos[i] <= pos[i - 1]) pos[i] = pos[i - 1] + 1;   // nie zwei Töne auf demselben Platz
-    const start = anchor != null ? Math.floor(pos[0] / (bpb * per)) * bpb * per : Math.floor(pos[0] / per) * per;   // ab Takt- bzw. Schlaganfang
+    // Positionen in Sechzehnteln rechnen; aufs gewählte Raster gerundet
+    const g16 = beat / spb, f = spb / per;
+    const pos = items.map(it => Math.round((it.t - ref) / g) * f);
+    for (let i = 1; i < pos.length; i++) if (pos[i] <= pos[i - 1]) {
+      // zwei Töne auf demselben Platz: nur diesen Ton auf die nächste Sechzehntel – keine Kettenreaktion
+      pos[i] = Math.max(pos[i - 1] + 1, Math.round((items[i].t - ref) / g16));
+    }
+    const barU = bpb * spb, start = anchor != null ? Math.floor(pos[0] / barU) * barU : Math.floor(pos[0] / spb) * spb;   // ab Takt- bzw. Schlaganfang
     return items.map((it, i) => {
-      let len = Math.max(1, Math.round((it.d || g) / g));
+      let len = Math.max(f, Math.round((it.d || g) / g) * f);
       if (i + 1 < items.length) len = Math.max(1, Math.min(len, pos[i + 1] - pos[i]));
-      return { t: (pos[i] - start) * g, dur: len * g };
+      return { t: (pos[i] - start) * g16, dur: len * g16 };
     });
   }
   // Rhythmus nur verwenden, wenn er aus einem Durchgang stammt (keine Rücksprünge, keine Lücken > 4 s, gleiches Raster)
@@ -184,10 +189,30 @@
     for (let i = 1; i < n; i++) { const d = r[i].t - r[i - 1].t; if (d <= 0 || d > 4 || r[i].a !== r[0].a) return false; }
     return true;
   };
+  // Sechzehntel pro Schlag: bei x/4 vier, bei x/8 zwei (der Schlag ist dort eine Achtel)
+  const spbOf = s => /\/8$/.test(meterOf(s).sig) ? 2 : 4;
+  const hasQ = line => Array.isArray(line.q) && line.notes.length > 0 && line.q.length === line.notes.length;
+  // Rhythmus einer Zeile in Sechzehnteln ({p: Position ab Taktanfang, l: Länge}): von Hand bearbeitet oder aus dem Gesang
+  function lineQ(s, line) {
+    const n = line.notes.length; if (!n) return [];
+    if (hasQ(line)) return line.q;
+    const bpm = s.bpm || 100, spb = spbOf(s), g16 = 60 / bpm / spb;
+    if (rhOk(line)) {
+      const rh = line.rh.slice(0, n), a = rh[0].a, grid = s.grid === "16" ? "16" : s.grid === "off" ? "16" : "8";
+      return quantize(rh.map(x => ({ t: x.t, d: x.d })), bpm, a != null && rh.every(x => x.a === a) ? a : null, grid, meterOf(s).beats, spb)
+        .map(z => ({ p: Math.round(z.t / g16), l: Math.max(1, Math.round(z.dur / g16)) }));
+    }
+    const st = Math.max(1, spb / 2); return line.notes.map((_, i) => ({ p: i * st, l: st }));   // ohne Rhythmus: gleichmässige Achtel
+  }
   function lineEvents(s, line, t0 = 0) {
+    if (hasQ(line)) {   // von Hand im Taktraster bearbeitet
+      const g16 = 60 / (s.bpm || 100) / spbOf(s), q = line.q, ev = []; let ni = 0;
+      units(line, s.lang).forEach((u, i) => u.notes.forEach((m, k) => { const z = q[ni++]; if (z) ev.push({ t: t0 + z.p * g16, dur: z.l * g16, melody: [m], chord: k === 0 && line.chords[i] ? chordEvName(line.chords[i]) : null }); }));
+      return { ev, t: ev.length ? Math.max(...ev.map(e => e.t + e.dur)) : t0, bar: true };
+    }
     if (s.bpm && rhOk(line)) {
       const n = line.notes.length, rh = line.rh.slice(0, n), a = rh[0].a;
-      const q = quantize(rh.map(x => ({ t: x.t, d: x.d })), s.bpm, a != null && rh.every(x => x.a === a) ? a : null, s.grid || "8", meterOf(s).beats);
+      const q = quantize(rh.map(x => ({ t: x.t, d: x.d })), s.bpm, a != null && rh.every(x => x.a === a) ? a : null, s.grid || "8", meterOf(s).beats, spbOf(s));
       const ev = []; let ni = 0;
       units(line, s.lang).forEach((u, i) => u.notes.forEach((m, k) => { const z = q[ni++]; if (z) ev.push({ t: t0 + z.t, dur: z.dur, melody: [m], chord: k === 0 && line.chords[i] ? chordEvName(line.chords[i]) : null }); }));
       return { ev, t: ev.length ? Math.max(...ev.map(e => e.t + e.dur)) : t0, bar: true };
