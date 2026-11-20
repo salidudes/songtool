@@ -218,6 +218,8 @@
   .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
     background: var(--panel2); border: 1px solid var(--line); padding: 10px 16px; border-radius: 10px; font-size: 14px;
     opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; white-space: nowrap; }
+  .toast.act { pointer-events: auto; display: flex; align-items: center; gap: 10px; }
+  .u .n .ook { color: var(--warn); font-weight: 600; }
   .toast.show { opacity: 1; }
 
   .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: flex-end; justify-content: center; z-index: 40; }
@@ -246,7 +248,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v23</small></h1>
+    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v24</small></h1>
     <div class="settings">
       <button id="syncDot" title="Synchronisation">☁ aus</button>
       <button class="btn sm" id="settingsBtn" title="Einstellungen">⚙</button>
@@ -334,6 +336,7 @@
     <section class="card">
       <div class="cardtitle">Aufnahme</div>
       <label class="toggle"><input type="checkbox" id="smooth"> Ton glätten (ruhigere Anzeige, mittelt kleine Schwankungen)</label>
+      <label class="toggle"><input type="checkbox" id="keyFit"> Unsauber gesungene Töne an die Tonart anpassen (sauber gesungene «fremde» Töne bleiben; fremde Töne werden orange markiert)</label>
     </section>
     <section class="card">
       <div class="cardtitle">Timing mit Metronom</div>
@@ -479,9 +482,10 @@
     for (let i = 0; i < 12; i++) { n += (a[i] - ma) * (b[i] - mb); da += (a[i] - ma) ** 2; db += (b[i] - mb) ** 2; }
     return da && db ? n / Math.sqrt(da * db) : 0;
   }
-  function detectKeys(s) {
+  function detectKeys(s, extra) {
     const h = new Array(12).fill(0); let count = 0;
     allLines(s).forEach(l => l.notes.forEach((m, i) => { h[((m % 12) + 12) % 12] += i === 0 ? 1.5 : 1; count++; }));
+    (extra || []).forEach(m => { h[((m % 12) + 12) % 12]++; count++; });
     if (count < 5) return { list: [], count };
     const list = [];
     for (let t = 0; t < 12; t++) {
@@ -492,6 +496,47 @@
   }
   const parseKey = str => { const [t, mode] = str.split(":"); return { t: +t, mode }; };
   const effKey = s => (s.key && s.key !== "auto") ? parseKey(s.key) : (detectKeys(s).list[0] || null);
+
+  // =============== Abgleich mit der Tonart ===============
+  // Korrigiert werden nur unsauber gesungene Töne: liegt ein Ton deutlich zwischen zwei Halbtönen (≥ 20 Cent daneben),
+  // ist der gerundete Ton tonartfremd und der Nachbar passt, gilt der Nachbar. Sauber gesungene fremde Töne bleiben –
+  // Blue Notes, die kleine Septime im Rock, der Leitton in Moll sind Absicht.
+  const SCALE = { maj: [0, 2, 4, 5, 7, 9, 11], min: [0, 2, 3, 5, 7, 8, 10, 11] };   // Moll mit Leitton
+  const inKey = (m, k) => SCALE[k.mode].includes(((m - k.t) % 12 + 12) % 12);
+  const keyFitOn = () => settings.keyFit !== false;
+  // Tonart, auf die Verlass ist: von Hand gesetzt, oder klar erkannt aus mindestens 10 Tönen
+  function fitKey(s, extra) {
+    if (s.key && s.key !== "auto") return parseKey(s.key);
+    const d = detectKeys(s, extra); return d.count >= 10 && d.list[0] && d.list[0].r >= .6 ? d.list[0] : null;
+  }
+  // Wie du in diesem Durchgang singst: durchgehend etwas zu hoch/tief (tune, Halbtöne) und wie stark die Töne streuen (sd).
+  // Aus der gemeinsamen Abweichung aller Töne vom nächsten Halbton (Kreis-Statistik).
+  function pitchStats(cs) {
+    if (cs.length < 6) return { tune: 0, sd: .3 };
+    let cx = 0, cy = 0; cs.forEach(c => { cx += Math.cos(2 * Math.PI * c); cy += Math.sin(2 * Math.PI * c); });
+    const R = Math.hypot(cx, cy) / cs.length;
+    return { tune: R >= .2 ? Math.max(-.45, Math.min(.45, Math.atan2(cy, cx) / (2 * Math.PI))) : 0, sd: Math.max(.1, Math.min(.4, Math.sqrt(-Math.log(Math.max(R, 1e-3)) / (2 * Math.PI * Math.PI)))) };
+  }
+  // Ton runden. Tonartfremd und Richtung Nachbar verrutscht, der passt → Nachbar – aber nur, wenn das bei deiner
+  // Streuung wahrscheinlicher ist (tonarteigene Töne sind etwa 5× häufiger). Wer sauber singt, behält seine «fremden» Töne.
+  function fitPitch(c, key, st) {
+    st = st || { tune: 0, sd: .3 };
+    if (!keyFitOn()) return Math.round(c);
+    const x = c - st.tune, n0 = Math.round(x), d = x - n0;
+    if (!key || inKey(n0, key)) return n0;
+    const n1 = n0 + (d < 0 ? -1 : 1);
+    return inKey(n1, key) && Math.abs(d) > .5 - st.sd * st.sd * Math.log(5) ? n1 : n0;
+  }
+  // nach dem Singen: alle Töne des Durchgangs nochmals mit der jetzt sicheren Tonart und Stimmung prüfen
+  function takeRecheck(take) {
+    if (!keyFitOn() || take.length < 6) return;
+    const st = pitchStats(take.map(x => x.c)), key = fitKey(song()), ch = [];
+    take.forEach(x => { const to = fitPitch(x.c, key, st); if (to !== x.m && x.line.notes[x.idx] === x.m) ch.push({ ...x, to }); });
+    if (!ch.length) return;
+    const set = v => { ch.forEach(x => { if (x.line.notes[x.idx] === (v ? x.m : x.to)) x.line.notes[x.idx] = v ? x.to : x.m; }); persist(); refreshAll(); };
+    set(true);
+    toastAct(ch.length + (ch.length === 1 ? " unsauberer Ton" : " unsaubere Töne") + (key ? " an " + keyName(key) + " angepasst" : " korrigiert"), "Rückgängig", () => set(false));
+  }
   const DE_SHARP = ["C","Cis","D","Dis","E","F","Fis","G","Gis","A","Ais","H"];
   const DE_FLAT  = ["C","Des","D","Es","E","F","Ges","G","As","A","B","H"];
   function keyName(k) {
@@ -542,7 +587,17 @@
   }
 
   // =============== UI-Grundlagen ===============
-  function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 1800); }
+  function toast(msg) {
+    const t = $("toast");
+    if (t.classList.contains("act")) { t._next = msg; return; }   // Hinweis mit Knopf nicht überschreiben – danach zeigen
+    t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 1800);
+  }
+  function toastAct(msg, label, fn) {
+    const t = $("toast"); t.innerHTML = esc(msg) + ` <button class="btn sm">${esc(label)}</button>`; t.classList.add("show", "act");
+    const done = () => { clearTimeout(t._h); t.classList.remove("show", "act"); const nx = t._next; t._next = null; if (nx) setTimeout(() => toast(nx), 250); };
+    t.querySelector("button").onclick = () => { fn(); done(); };
+    clearTimeout(t._h); t._h = setTimeout(done, 7000);
+  }
   function setupSeg(id, key) {
     const seg = $(id);
     const paint = () => seg.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === settings[key]));
@@ -551,6 +606,7 @@
   }
   setupSeg("segName", "naming"); setupSeg("segAcc", "acc");
   $("smooth").checked = settings.smooth; $("smooth").onchange = e => { settings.smooth = e.target.checked; saveSettings(); };
+  $("keyFit").checked = keyFitOn(); $("keyFit").onchange = e => { settings.keyFit = e.target.checked; saveSettings(); refreshAll(); };
 
   $("showNotes").checked = settings.showNotes; $("showNotes").onchange = e => { settings.showNotes = e.target.checked; saveSettings(); renderSheet(); };
 
@@ -809,11 +865,11 @@
   }
 
   function lsHTML(line, lang, editable, joined) {
-    const us = units(line, lang);
+    const us = units(line, lang), key = editable ? fitKey(song()) : null;
     return us.map((u, i) => {
       const c = line.chords[i];
       const chord = c ? chordLabel(c) : (editable ? "＋" : "");
-      const notes = u.notes.map(m => noteName(m) + octave(m)).join(" ");
+      const notes = u.notes.map(m => key && !inKey(m, key) ? `<b class="ook" title="nicht in ${keyName(key)} – Absicht oder verrutscht?">${noteName(m) + octave(m)}</b>` : noteName(m) + octave(m)).join(" ");
       const syl = u.t ? u.t + (u.end || joined ? "" : "-") : "·";
       return `<span class="u${u.end ? " we" : ""}" data-u="${i}"><span class="c${c ? "" : " add"}">${esc(chord)}</span><span class="s">${esc(syl)}</span><span class="n">${notes}</span></span>`;
     }).join("");
@@ -1360,6 +1416,12 @@
       const phr = await analyze(audio, p => $("memoProg").firstElementChild.style.width = Math.round(p * 100) + "%");
       $("memoProg").hidden = true;
       const cnt = phr.reduce((a, p) => a + p.notes.length, 0);
+      let fixed = 0, fkey = null;
+      if (keyFitOn() && cnt >= 6) {   // unsauber gesungene Töne an Tonart und Stimmung des Memos anpassen
+        const all = phr.flatMap(p => p.notes), st = pitchStats(all.map(n => n.c));
+        fkey = fitKey(s, all.map(n => Math.round(n.c - st.tune)));
+        all.forEach(n => { const m = fitPitch(n.c, fkey, st); if (m !== n.m) { n.m = m; fixed++; } });
+      }
       phr.forEach((p, k) => { p.target = k < sec.lines.length ? String(k) : "new"; p.notes = p.notes.map(n => ({ m: n.m, start: Math.round(n.start * 100) / 100, end: Math.round(n.end * 100) / 100 })); });
       const guess = metro ? metro.bpm : estimateTempo(phr);
       // Vorschläge: erkannt, halb, doppelt – vorausgewählt das, was am nächsten am bisherigen Song-Tempo liegt
@@ -1367,7 +1429,7 @@
       const bpmGuess = opts.length ? (s.bpm && !metro ? opts.reduce((a, v) => Math.abs(v - s.bpm) < Math.abs(a - s.bpm) ? v : a) : opts[0]) : null;
       const time = new Date().toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" });
       memoEdit = { songId, secId, blob, isNew: true, bpm: bpmGuess, bpmOpts: opts, fromMetro: !!metro, takeBpm: !!bpmGuess && s.bpmAuto !== false, memo: { metro: metro || null, id: uid(), name: secLabel(s, s.sections.indexOf(sec)) + " " + time, kind: "gesang", apply: cnt > 0, applied: false, created: Date.now(), dur: Math.round(audio.duration * 10) / 10, phrases: phr } };
-      $("memoInfo").textContent = cnt ? `${fmtT(audio.duration)} · ${cnt} Töne in ${phr.length} Phrase(n) erkannt` : `${fmtT(audio.duration)} · keine Töne erkannt – das Memo kannst du trotzdem speichern`;
+      $("memoInfo").textContent = cnt ? `${fmtT(audio.duration)} · ${cnt} Töne in ${phr.length} Phrase(n) erkannt` + (fixed ? ` · ${fixed} unsauber gesungene an ${fkey ? keyName(fkey) : "deine Stimmung"} angepasst` : "") : `${fmtT(audio.duration)} · keine Töne erkannt – das Memo kannst du trotzdem speichern`;
       renderMemoDlg(); $("memoOk").disabled = false;
     } catch (e) {
       $("memoProg").hidden = true;

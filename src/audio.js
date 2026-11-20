@@ -98,6 +98,7 @@
 
   // =============== Audio ===============
   let ctx, analyser, stream, raf, data, running = false, wakeLock = null;
+  let liveTake = [], liveKey = null;   // Töne dieses Durchgangs (mit genauer Tonhöhe) und die Tonart, auf die Verlass ist
   const hist = [], trace = [];
   let rawStable = { midi: null, since: 0 };
   let current = null;
@@ -121,7 +122,7 @@
     analyser.fftSize = ctx.sampleRate > 48000 ? 4096 : 2048;
     data = new Float32Array(analyser.fftSize);
     src.connect(analyser);
-    running = true; liveSaving = true; seg = null; cand = [];
+    running = true; liveSaving = true; seg = null; cand = []; liveTake = []; liveKey = fitKey(song());
     $("startBtn").textContent = vis === "cal" ? "■ Kalibrieren abbrechen" : vis ? "■ Memo stoppen" : "■ Stopp"; $("startBtn").classList.remove("primary"); $("startBtn").classList.toggle("recon", !!vis);
     dockState();
     metaEl.textContent = "Ich höre zu …";
@@ -138,6 +139,7 @@
     $("startBtn").textContent = "🎤 Start"; $("startBtn").classList.add("primary"); $("startBtn").classList.remove("recon");
     const wasLive = !visualOnly;
     showIdle("Pausiert"); levelBar.style.width = "0"; visualOnly = false;
+    if (wasLive) takeRecheck(liveTake);   // mit der jetzt sicheren Tonart nochmals prüfen
     if (wasLive && settings.auto && !metroTake) setTimeout(() => autoTempo(false), 50);   // mit Metronom ist das Tempo schon klar
     if (calRun) calDone();
     dockState();
@@ -177,9 +179,11 @@
       showNote(current, held > 250);
       // notieren, sobald ein Ton kurz stabil ist (100 ms; bei grossem Sprung 200 ms gegen Oktavfehler)
       if (settings.auto && !visualOnly && seg && !seg.added) {
-        const mm = Math.round(seg.center), jump = lastAuto == null ? 0 : Math.abs(mm - lastAuto);
+        // gerundet – unsauber gesungen und tonartfremd → passender Nachbarton (siehe fitPitch)
+        const mm = fitPitch(seg.center, liveKey, pitchStats(liveTake.map(x => x.c))), jump = lastAuto == null ? 0 : Math.abs(mm - lastAuto);
         if (now - seg.start > (jump > 12 ? 300 : jump > 9 ? 200 : 100)) {
           seg.added = true; seg.addedMidi = mm; lastAuto = mm; seg.ref = addNote(mm, true);
+          liveTake.push(seg.take = { line: seg.ref.line, idx: seg.ref.idx, c: seg.center, m: mm }); liveKey = fitKey(song());
           // Einsatzzeit merken; läuft das Metronom, auch dessen Raster (eine «Eins»)
           const L = seg.ref.line; L.rh = L.rh || [];
           // Einsatz in Metronom-Zeit; mit Metronom die gemessene Verzögerung Klick → Ohr → Stimme → Mikrofon abziehen
@@ -190,8 +194,10 @@
         }
       } else if (seg && seg.added && seg.ref) {
         // früh notierter Ton: korrigieren, solange er sich noch einpendelt
-        const mm = Math.round(seg.center), r = seg.ref;
-        if (mm !== seg.addedMidi && r.line.notes[r.idx] === seg.addedMidi && now - seg.start < 1500) { r.line.notes[r.idx] = mm; seg.addedMidi = mm; lastAuto = mm; persist(); afterNotesChanged(r.si); }
+        const r = seg.ref, early = now - seg.start < 1500;
+        if (early && seg.take) seg.take.c = seg.center;
+        const mm = fitPitch(seg.center, liveKey, pitchStats(liveTake.map(x => x.c)));
+        if (mm !== seg.addedMidi && r.line.notes[r.idx] === seg.addedMidi && early) { r.line.notes[r.idx] = mm; seg.addedMidi = mm; lastAuto = mm; if (seg.take) seg.take.m = mm; persist(); afterNotesChanged(r.si); }
       }
     } else {
       hist.length = 0;
