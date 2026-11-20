@@ -137,6 +137,8 @@
           seg.added = true; seg.addedMidi = mm; lastAuto = mm; seg.ref = addNote(mm, true);
           // Einsatzzeit merken; läuft das Metronom, auch dessen Raster (eine «Eins»)
           const L = seg.ref.line; L.rh = L.rh || [];
+          const prev = L.rh[seg.ref.idx - 1];
+          if (seg.ref.idx > 0 && (!prev || seg.start / 1000 - prev.t > 4 || seg.start / 1000 < prev.t)) L.rh = [];   // neuer Durchgang: nicht mit altem Rhythmus mischen
           L.rh[seg.ref.idx] = seg.rh = { t: seg.start / 1000, d: null, a: Metro.timer ? Metro.anchor : null };
         }
       } else if (seg && seg.added && seg.ref) {

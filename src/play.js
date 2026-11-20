@@ -161,6 +161,7 @@
       for (let k = 0; k < 24; k++) { const ph = b - k * g / 24; let c = 0; items.forEach(it => { const r = (it.t - ph) / g; c += Math.abs(r - Math.round(r)); }); if (c < bc) { bc = c; ref = ph; } }
     }
     const pos = items.map(it => Math.round((it.t - ref) / g));
+    for (let i = 1; i < pos.length; i++) if (pos[i] <= pos[i - 1]) pos[i] = pos[i - 1] + 1;   // nie zwei Töne auf derselben Sechzehntel
     const start = anchor != null ? Math.floor(pos[0] / 16) * 16 : Math.floor(pos[0] / 4) * 4;   // ab Takt- bzw. Schlaganfang
     return items.map((it, i) => {
       let len = Math.max(1, Math.round((it.d || 2 * g) / g));
@@ -168,7 +169,14 @@
       return { t: (pos[i] - start) * g, dur: len * g };
     });
   }
-  const rhOk = line => { const n = line.notes.length, rh = line.rh; return n && rh && rh.length >= n && rh.slice(0, n).every(x => x && x.t != null); };
+  // Rhythmus nur verwenden, wenn er aus einem Durchgang stammt (keine Rücksprünge, keine Lücken > 4 s, gleiches Raster)
+  const rhOk = line => {
+    const n = line.notes.length, rh = line.rh;
+    if (!n || !rh || rh.length < n) return false;
+    const r = rh.slice(0, n); if (!r.every(x => x && x.t != null)) return false;
+    for (let i = 1; i < n; i++) { const d = r[i].t - r[i - 1].t; if (d <= 0 || d > 4 || r[i].a !== r[0].a) return false; }
+    return true;
+  };
   function lineEvents(s, line, t0 = 0) {
     if (s.bpm && rhOk(line)) {
       const n = line.notes.length, rh = line.rh.slice(0, n), a = rh[0].a;
