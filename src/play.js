@@ -152,7 +152,31 @@
 
   // ---- Zeilen und Teile mit Akkorden + Melodie auf dem Klavier ----
   const chordEvName = c => c.txt != null ? { name: c.txt, german: settings.naming === "de" } : { name: intl(c.r, false) + SUF[c.q], german: false };
+  // Töne auf das Sechzehntel-Raster ziehen. items: [{t, d}] in Sekunden; anchor: Zeit einer «Eins» (Metronom) oder null
+  function quantize(items, bpm, anchor) {
+    const g = 15 / bpm; if (!items.length) return [];
+    let ref = anchor;
+    if (ref == null) {   // ohne Metronom: das Raster suchen, in das die Einsätze am besten passen
+      let bc = 1e9; const b = items[0].t;
+      for (let k = 0; k < 24; k++) { const ph = b - k * g / 24; let c = 0; items.forEach(it => { const r = (it.t - ph) / g; c += Math.abs(r - Math.round(r)); }); if (c < bc) { bc = c; ref = ph; } }
+    }
+    const pos = items.map(it => Math.round((it.t - ref) / g));
+    const start = anchor != null ? Math.floor(pos[0] / 16) * 16 : Math.floor(pos[0] / 4) * 4;   // ab Takt- bzw. Schlaganfang
+    return items.map((it, i) => {
+      let len = Math.max(1, Math.round((it.d || 2 * g) / g));
+      if (i + 1 < items.length) len = Math.max(1, Math.min(len, pos[i + 1] - pos[i] || 1));
+      return { t: (pos[i] - start) * g, dur: len * g };
+    });
+  }
+  const rhOk = line => { const n = line.notes.length, rh = line.rh; return n && rh && rh.length >= n && rh.slice(0, n).every(x => x && x.t != null); };
   function lineEvents(s, line, t0 = 0) {
+    if (s.bpm && rhOk(line)) {
+      const n = line.notes.length, rh = line.rh.slice(0, n), a = rh[0].a;
+      const q = quantize(rh.map(x => ({ t: x.t, d: x.d })), s.bpm, a != null && rh.every(x => x.a === a) ? a : null);
+      const ev = []; let ni = 0;
+      units(line, s.lang).forEach((u, i) => u.notes.forEach((m, k) => { const z = q[ni++]; if (z) ev.push({ t: t0 + z.t, dur: z.dur, melody: [m], chord: k === 0 && line.chords[i] ? chordEvName(line.chords[i]) : null }); }));
+      return { ev, t: ev.length ? Math.max(...ev.map(e => e.t + e.dur)) : t0, bar: true };
+    }
     const us = units(line, s.lang), mel = line.notes.length > 0, ev = []; let t = t0;
     const e8 = s.bpm ? 30 / s.bpm : 0;   // mit Tempo: jede Silbe/Note eine Achtel
     us.forEach((u, i) => {
@@ -166,7 +190,8 @@
     const beat = s.bpm ? 60 / s.bpm : 0;
     sec.lines.filter(l => l.text.trim() || l.notes.length).forEach(l => {
       const r = lineEvents(s, l, t); ev = ev.concat(r.ev);
-      t = beat ? Math.ceil((r.t + beat * .5) / beat) * beat : r.t + .35;   // mit Tempo: nächste Zeile auf dem nächsten Schlag
+      // mit Tempo: nächste Zeile auf dem nächsten Schlag – bei echtem Rhythmus auf dem nächsten Takt
+      t = r.bar ? Math.ceil((r.t + .01) / (4 * beat)) * 4 * beat : beat ? Math.ceil((r.t + beat * .5) / beat) * beat : r.t + .35;
     });
     return ev;
   }

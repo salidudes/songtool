@@ -34,7 +34,9 @@
     const s = [...a].sort((x, y) => x - y), k = Math.floor(s.length * 0.2);
     const t = s.slice(k, s.length - k || undefined); return t.reduce((x, y) => x + y, 0) / t.length;
   }
-  function newSeg(vals, start) { segCount++; seg = { vals, start, center: trimmedMean(vals), added: false, id: segCount }; cand = []; }
+  // Dauer des laufenden Tons festhalten, wenn er endet (für den Rhythmus)
+  function endSeg(t) { if (seg && seg.rh && seg.rh.d == null) seg.rh.d = Math.max(.05, (t - seg.start) / 1000); }
+  function newSeg(vals, start) { endSeg(start); segCount++; seg = { vals, start, center: trimmedMean(vals), added: false, id: segCount }; cand = []; }
   let inTol = 0;
   function segFeed(m, now) {
     if (!seg) { newSeg([m], now); return; }
@@ -85,6 +87,7 @@
     loop();
   }
   function stop() {
+    endSeg(performance.now());
     running = false; cancelAnimationFrame(raf);
     stream?.getTracks().forEach(t => t.stop());
     try { wakeLock?.release(); } catch {}
@@ -128,7 +131,12 @@
       // notieren, sobald ein Ton kurz stabil ist (100 ms; bei grossem Sprung 200 ms gegen Oktavfehler)
       if (settings.auto && !visualOnly && seg && !seg.added) {
         const mm = Math.round(seg.center), jump = lastAuto == null ? 0 : Math.abs(mm - lastAuto);
-        if (now - seg.start > (jump > 12 ? 300 : jump > 9 ? 200 : 100)) { seg.added = true; seg.addedMidi = mm; lastAuto = mm; seg.ref = addNote(mm, true); }
+        if (now - seg.start > (jump > 12 ? 300 : jump > 9 ? 200 : 100)) {
+          seg.added = true; seg.addedMidi = mm; lastAuto = mm; seg.ref = addNote(mm, true);
+          // Einsatzzeit merken; läuft das Metronom, auch dessen Raster (eine «Eins»)
+          const L = seg.ref.line; L.rh = L.rh || [];
+          L.rh[seg.ref.idx] = seg.rh = { t: seg.start / 1000, d: null, a: Metro.timer ? Metro.anchor : null };
+        }
       } else if (seg && seg.added && seg.ref) {
         // früh notierter Ton: korrigieren, solange er sich noch einpendelt
         const mm = Math.round(seg.center), r = seg.ref;
@@ -137,7 +145,7 @@
     } else {
       hist.length = 0;
       trace.push({ t: now, m: null });
-      if (now - lastVoice > SILENCE_MS) { seg = null; cand = []; current = null; showIdle(""); rawStable = { midi: null, since: 0 }; }
+      if (now - lastVoice > SILENCE_MS) { endSeg(lastVoice); seg = null; cand = []; current = null; showIdle(""); rawStable = { midi: null, since: 0 }; }
     }
     while (trace.length && now - trace[0].t > 6000) trace.shift();
     drawTrace(now);

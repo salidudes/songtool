@@ -218,7 +218,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v14</small></h1>
+    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v15</small></h1>
     <div class="settings">
       <button id="syncDot" title="Synchronisation">☁ aus</button>
       <button class="btn sm" id="settingsBtn" title="Einstellungen">⚙</button>
@@ -742,7 +742,7 @@ function sylSplit(word, lang) {
       if (on && line.notes.length) {
         const t = document.createElement("div"); t.className = "ftools";
         t.innerHTML = '<button class="btn sm ghost" data-f="play">▶</button><button class="btn sm ghost" data-f="undo">⌫ letzten Ton</button>';
-        t.onclick = e => { const f = e.target.dataset.f; if (f === "undo") { line.notes.pop(); persist(); afterNotesChanged(si); } if (f === "play") pianoToggle(e.target, () => lineEvents(s, line).ev); e.stopPropagation(); };
+        t.onclick = e => { const f = e.target.dataset.f; if (f === "undo") { line.notes.pop(); if (line.rh) line.rh.length = Math.min(line.rh.length, line.notes.length); persist(); afterNotesChanged(si); } if (f === "play") pianoToggle(e.target, () => lineEvents(s, line).ev); e.stopPropagation(); };
         row.appendChild(t);
       }
       row.onclick = () => setActive(si, li);
@@ -789,7 +789,7 @@ function sylSplit(word, lang) {
           const c = document.createElement("span"); c.className = "chip";
           c.innerHTML = noteName(m) + "<small>" + octave(m) + '</small><span class="x">✕</span>';
           c.onclick = e => {
-            if (e.target.classList.contains("x")) { line.notes.splice(j, 1); persist(); afterNotesChanged(si); return; }
+            if (e.target.classList.contains("x")) { line.notes.splice(j, 1); if (line.rh) line.rh.splice(j, 1); persist(); afterNotesChanged(si); return; }
             playTone(m, .6); c.classList.add("playing"); setTimeout(() => c.classList.remove("playing"), 600);
           };
           st.appendChild(c);
@@ -1189,7 +1189,9 @@ function sylSplit(word, lang) {
     const s = [...a].sort((x, y) => x - y), k = Math.floor(s.length * 0.2);
     const t = s.slice(k, s.length - k || undefined); return t.reduce((x, y) => x + y, 0) / t.length;
   }
-  function newSeg(vals, start) { segCount++; seg = { vals, start, center: trimmedMean(vals), added: false, id: segCount }; cand = []; }
+  // Dauer des laufenden Tons festhalten, wenn er endet (für den Rhythmus)
+  function endSeg(t) { if (seg && seg.rh && seg.rh.d == null) seg.rh.d = Math.max(.05, (t - seg.start) / 1000); }
+  function newSeg(vals, start) { endSeg(start); segCount++; seg = { vals, start, center: trimmedMean(vals), added: false, id: segCount }; cand = []; }
   let inTol = 0;
   function segFeed(m, now) {
     if (!seg) { newSeg([m], now); return; }
@@ -1240,6 +1242,7 @@ function sylSplit(word, lang) {
     loop();
   }
   function stop() {
+    endSeg(performance.now());
     running = false; cancelAnimationFrame(raf);
     stream?.getTracks().forEach(t => t.stop());
     try { wakeLock?.release(); } catch {}
@@ -1283,7 +1286,12 @@ function sylSplit(word, lang) {
       // notieren, sobald ein Ton kurz stabil ist (100 ms; bei grossem Sprung 200 ms gegen Oktavfehler)
       if (settings.auto && !visualOnly && seg && !seg.added) {
         const mm = Math.round(seg.center), jump = lastAuto == null ? 0 : Math.abs(mm - lastAuto);
-        if (now - seg.start > (jump > 12 ? 300 : jump > 9 ? 200 : 100)) { seg.added = true; seg.addedMidi = mm; lastAuto = mm; seg.ref = addNote(mm, true); }
+        if (now - seg.start > (jump > 12 ? 300 : jump > 9 ? 200 : 100)) {
+          seg.added = true; seg.addedMidi = mm; lastAuto = mm; seg.ref = addNote(mm, true);
+          // Einsatzzeit merken; läuft das Metronom, auch dessen Raster (eine «Eins»)
+          const L = seg.ref.line; L.rh = L.rh || [];
+          L.rh[seg.ref.idx] = seg.rh = { t: seg.start / 1000, d: null, a: Metro.timer ? Metro.anchor : null };
+        }
       } else if (seg && seg.added && seg.ref) {
         // früh notierter Ton: korrigieren, solange er sich noch einpendelt
         const mm = Math.round(seg.center), r = seg.ref;
@@ -1292,7 +1300,7 @@ function sylSplit(word, lang) {
     } else {
       hist.length = 0;
       trace.push({ t: now, m: null });
-      if (now - lastVoice > SILENCE_MS) { seg = null; cand = []; current = null; showIdle(""); rawStable = { midi: null, since: 0 }; }
+      if (now - lastVoice > SILENCE_MS) { endSeg(lastVoice); seg = null; cand = []; current = null; showIdle(""); rawStable = { midi: null, since: 0 }; }
     }
     while (trace.length && now - trace[0].t > 6000) trace.shift();
     drawTrace(now);
@@ -1450,6 +1458,7 @@ function sylSplit(word, lang) {
   function paintRecBtn() {
     document.querySelectorAll("#secs .recbtn").forEach(b => { b.classList.remove("on"); b.textContent = "🎙"; });
     if (!recState) return;
+    if (Metro.timer && song().bpm) recState.metro = { bpm: song().bpm, a: Metro.anchor };
     const b = document.querySelector(`#secs .sec[data-id="${recState.secId}"] .recbtn`);
     if (b) { b.classList.add("on"); b.textContent = "■ " + fmtT((Date.now() - recState.t0) / 1000); }
     const fb = $("focusRec"); if (fb && song().sections[song().active.s]?.id === recState.secId) { fb.classList.add("recon"); fb.textContent = "■ " + fmtT((Date.now() - recState.t0) / 1000); }
@@ -1475,10 +1484,10 @@ function sylSplit(word, lang) {
       const st = recState; recState = null; if (running) stop(); paintRecBtn(); dockState(); renderFocus();
       const blob = new Blob(chunks, { type: rec.mimeType || mime || "audio/webm" });
       if (blob.size < 2000) { toast("Aufnahme zu kurz"); return; }
-      newMemoFromBlob(st.songId, st.secId, blob);
+      newMemoFromBlob(st.songId, st.secId, blob, st.metro ? { bpm: st.metro.bpm, a: st.metro.a - st.p0 } : null);
     };
     rec.start(250);
-    recState = { rec, songId: s.id, secId: sec.id, t0: Date.now(), tick: setInterval(paintRecBtn, 500) };
+    recState = { rec, songId: s.id, secId: sec.id, t0: Date.now(), p0: performance.now() / 1000, tick: setInterval(paintRecBtn, 500) };
     start(stream, true);
     try { recState.wl = await navigator.wakeLock?.request("screen"); } catch {}
     paintRecBtn(); dockState(); renderFocus(); toast("Memo-Aufnahme läuft – oben auf «■ Memo stoppen» tippen");
@@ -1486,7 +1495,7 @@ function sylSplit(word, lang) {
 
   let memoEdit = null;   // { songId, secId, memo, blob, isNew }
   function findSec(songId, secId) { const s = songs.find(x => x.id === songId); return { s, sec: s && s.sections.find(x => x.id === secId) }; }
-  async function newMemoFromBlob(songId, secId, blob) {
+  async function newMemoFromBlob(songId, secId, blob, metro) {
     const { s, sec } = findSec(songId, secId); if (!sec) return;
     $("memoTitle").textContent = "Neues Memo für " + secLabel(s, s.sections.indexOf(sec));
     $("memoInfo").textContent = "Aufnahme wird ausgewertet …"; $("memoBody").innerHTML = ""; $("memoOk").disabled = true;
@@ -1498,9 +1507,12 @@ function sylSplit(word, lang) {
       $("memoProg").hidden = true;
       const cnt = phr.reduce((a, p) => a + p.notes.length, 0);
       phr.forEach((p, k) => { p.target = k < sec.lines.length ? String(k) : "new"; p.notes = p.notes.map(n => ({ m: n.m, start: Math.round(n.start * 100) / 100, end: Math.round(n.end * 100) / 100 })); });
-      const bpmGuess = estimateTempo(phr);
+      const guess = metro ? metro.bpm : estimateTempo(phr);
+      // Vorschläge: erkannt, halb, doppelt – vorausgewählt das, was am nächsten am bisherigen Song-Tempo liegt
+      const opts = metro ? [metro.bpm] : guess ? [guess, Math.round(guess / 2), guess * 2].filter(v => v >= 40 && v <= 240) : [];
+      const bpmGuess = opts.length ? (s.bpm && !metro ? opts.reduce((a, v) => Math.abs(v - s.bpm) < Math.abs(a - s.bpm) ? v : a) : opts[0]) : null;
       const time = new Date().toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" });
-      memoEdit = { songId, secId, blob, isNew: true, bpm: bpmGuess, takeBpm: !!bpmGuess && !s.bpm, memo: { id: uid(), name: secLabel(s, s.sections.indexOf(sec)) + " " + time, kind: "gesang", apply: cnt > 0, applied: false, created: Date.now(), dur: Math.round(audio.duration * 10) / 10, phrases: phr } };
+      memoEdit = { songId, secId, blob, isNew: true, bpm: bpmGuess, bpmOpts: opts, fromMetro: !!metro, takeBpm: !!bpmGuess && !s.bpm, memo: { metro: metro || null, id: uid(), name: secLabel(s, s.sections.indexOf(sec)) + " " + time, kind: "gesang", apply: cnt > 0, applied: false, created: Date.now(), dur: Math.round(audio.duration * 10) / 10, phrases: phr } };
       $("memoInfo").textContent = cnt ? `${fmtT(audio.duration)} · ${cnt} Töne in ${phr.length} Phrase(n) erkannt` : `${fmtT(audio.duration)} · keine Töne erkannt – das Memo kannst du trotzdem speichern`;
       renderMemoDlg(); $("memoOk").disabled = false;
     } catch (e) {
@@ -1524,7 +1536,9 @@ function sylSplit(word, lang) {
       ${M.kind === "gesang" && M.phrases.length ? `<label class="toggle"><input type="checkbox" id="mApply"${M.apply ? " checked" : ""}> Töne auf die Textzeilen verteilen</label>` : ""}
       ${M.kind === "gesang" && M.apply ? `<label class="toggle"><input type="checkbox" id="mReplace" checked> Bestehende Melodie der Zeilen ersetzen</label>` : ""}
       <div class="sub" style="margin:0">${M.kind === "gesang" ? "Gesang gehört zu den Textzeilen dieses Teils." : "Wird als eigenes Memo bei diesem Teil gespeichert, unabhängig vom Text."}</div>
-      ${memoEdit.bpm ? `<label class="toggle"><input type="checkbox" id="mBpm"${memoEdit.takeBpm ? " checked" : ""}> Tempo ≈ ${memoEdit.bpm} BPM erkannt – als Song-Tempo übernehmen${s.bpm ? " (bisher " + s.bpm + ")" : ""}</label>` : ""}
+      ${memoEdit.bpm && !(memoEdit.fromMetro && s.bpm === memoEdit.bpm) ? `<div class="sub" style="margin:0">${memoEdit.fromMetro ? "Tempo vom Metronom" : "Tempo erkannt – wähl, was sich richtig anfühlt"}:
+        ${memoEdit.bpmOpts.map(v => `<button class="btn sm${v === memoEdit.bpm ? " primary" : ""}" data-bpmopt="${v}">${v} BPM</button>`).join(" ")}</div>
+        <label class="toggle"><input type="checkbox" id="mBpm"${memoEdit.takeBpm ? " checked" : ""}> als Song-Tempo übernehmen${s.bpm ? " (bisher " + s.bpm + ")" : ""}</label>` : ""}
       ${memoEdit.blob ? '<div><button class="btn sm" id="mPlayAll">▶ Aufnahme anhören</button></div>' : ""}`;
     box.appendChild(head);
     $("mName").value = M.name; $("mName").oninput = e => M.name = e.target.value;
@@ -1532,6 +1546,7 @@ function sylSplit(word, lang) {
     const ap = $("mApply"); if (ap) ap.onchange = e => { M.apply = e.target.checked; renderMemoDlg(); };
     const pa = $("mPlayAll"); if (pa) pa.onclick = () => playBlob(memoEdit.blob, pa);
     const mb = $("mBpm"); if (mb) mb.onchange = e => memoEdit.takeBpm = e.target.checked;
+    box.querySelectorAll("[data-bpmopt]").forEach(b => b.onclick = () => { memoEdit.bpm = +b.dataset.bpmopt; memoEdit.takeBpm = true; renderMemoDlg(); });
     const map = M.kind === "gesang" && M.apply;
     M.phrases.forEach((p, k) => {
       const el = document.createElement("div"); el.className = "phr" + (map && p.target === "skip" ? " off" : "");
@@ -1550,7 +1565,7 @@ function sylSplit(word, lang) {
       });
       const sel = el.querySelector("select"); if (sel) sel.onchange = e => { p.target = e.target.value; renderMemoDlg(); };
       const ob = el.querySelector('[data-p="orig"]'); if (ob) ob.onclick = () => playBlob(memoEdit.blob, ob, t0, t1);
-      const sb = el.querySelector('[data-p="syn"]'); sb.onclick = () => pianoToggle(sb, () => timedEvents(p.notes, s.bpm));
+      const sb = el.querySelector('[data-p="syn"]'); sb.onclick = () => pianoToggle(sb, () => timedEvents(p.notes, s.bpm, M.metro ? M.metro.a : null));
       box.appendChild(el);
     });
   }
@@ -1569,11 +1584,12 @@ function sylSplit(word, lang) {
         if (p.target === "new") { line = newLine(); sec.lines.push(line); p.target = String(sec.lines.length - 1); }
         else line = sec.lines[+p.target];
         if (!line) return;
-        if (replace && !touched.has(line)) line.notes = [];
-        touched.add(line); p.notes.forEach(n => line.notes.push(n.m)); used++;
+        if (replace && !touched.has(line)) { line.notes = []; line.rh = []; }
+        touched.add(line); line.rh = line.rh || [];
+        p.notes.forEach(n => { line.rh[line.notes.length] = { t: n.start, d: Math.max(.05, n.end - n.start), a: M.metro ? M.metro.a : null }; line.notes.push(n.m); }); used++;
       });
     }
-    const memo = { id: M.id, name: M.name, kind: M.kind, applied: M.kind === "gesang" && M.apply && used > 0, created: M.created, dur: M.dur, phrases: M.phrases.map(p => ({ notes: p.notes, target: p.target })) };
+    const memo = { metro: M.metro || null, id: M.id, name: M.name, kind: M.kind, applied: M.kind === "gesang" && M.apply && used > 0, created: M.created, dur: M.dur, phrases: M.phrases.map(p => ({ notes: p.notes, target: p.target })) };
     sec.memos = sec.memos || [];
     const i = sec.memos.findIndex(x => x.id === memo.id); if (i >= 0) sec.memos[i] = memo; else sec.memos.push(memo);
     if (memoEdit.isNew && memoEdit.blob) audioPut(memo.id, memoEdit.blob);
@@ -1595,7 +1611,7 @@ function sylSplit(word, lang) {
       d.querySelector(".memo-acts").onclick = e => {
         const btn = e.target.closest("[data-m]"); if (!btn) return; const a = btn.dataset.m;
         if (a === "orig" && d._blob) playBlob(d._blob, btn);
-        if (a === "syn") pianoToggle(btn, () => timedEvents(memo.phrases.flatMap(p => p.notes), s.bpm));
+        if (a === "syn") pianoToggle(btn, () => timedEvents(memo.phrases.flatMap(p => p.notes), s.bpm, memo.metro && memo.metro.bpm === s.bpm ? memo.metro.a : null));
         if (a === "edit") editMemo(s, sec, memo);
         if (a === "save" && d._blob) {
           const ext = /mp4|aac|m4a/.test(d._blob.type) ? "m4a" : /ogg/.test(d._blob.type) ? "ogg" : "webm";
@@ -1656,6 +1672,7 @@ function sylSplit(word, lang) {
   function metroStart() {
     if (Metro.timer) return;
     const c = ac(); Metro.next = c.currentTime + .1; Metro.n = 0;
+    Metro.anchor = performance.now() / 1000 + (Metro.next - c.currentTime);
     Metro.timer = setInterval(() => {
       const bpm = song().bpm; if (!bpm) return;
       while (Metro.next < c.currentTime + .15) { clickAt(Metro.next, Metro.n % 4 === 0); Metro.next += 60 / bpm; Metro.n++; }
@@ -1698,8 +1715,9 @@ function sylSplit(word, lang) {
     if ($("tempoRow") && !$("tempoRow").hidden) tempoWidget($("tempoRow"), true);
   }
   // Memo-Töne im Song-Tempo (auf Sechzehntel gerundet)
-  function timedEvents(notes, bpm) {
+  function timedEvents(notes, bpm, anchor) {
     if (!notes.length) return [];
+    if (bpm) { const q = quantize(notes.map(n => ({ t: n.start, d: n.end - n.start })), bpm, anchor == null ? null : anchor); return notes.map((n, i) => ({ t: q[i].t, dur: q[i].dur, melody: [n.m], chord: null })); }
     const b = notes[0].start, g = bpm ? 15 / bpm : 0;
     return notes.map(n => {
       const t = n.start - b, d = Math.max(.12, n.end - n.start);
@@ -1861,7 +1879,31 @@ function sylSplit(word, lang) {
 
   // ---- Zeilen und Teile mit Akkorden + Melodie auf dem Klavier ----
   const chordEvName = c => c.txt != null ? { name: c.txt, german: settings.naming === "de" } : { name: intl(c.r, false) + SUF[c.q], german: false };
+  // Töne auf das Sechzehntel-Raster ziehen. items: [{t, d}] in Sekunden; anchor: Zeit einer «Eins» (Metronom) oder null
+  function quantize(items, bpm, anchor) {
+    const g = 15 / bpm; if (!items.length) return [];
+    let ref = anchor;
+    if (ref == null) {   // ohne Metronom: das Raster suchen, in das die Einsätze am besten passen
+      let bc = 1e9; const b = items[0].t;
+      for (let k = 0; k < 24; k++) { const ph = b - k * g / 24; let c = 0; items.forEach(it => { const r = (it.t - ph) / g; c += Math.abs(r - Math.round(r)); }); if (c < bc) { bc = c; ref = ph; } }
+    }
+    const pos = items.map(it => Math.round((it.t - ref) / g));
+    const start = anchor != null ? Math.floor(pos[0] / 16) * 16 : Math.floor(pos[0] / 4) * 4;   // ab Takt- bzw. Schlaganfang
+    return items.map((it, i) => {
+      let len = Math.max(1, Math.round((it.d || 2 * g) / g));
+      if (i + 1 < items.length) len = Math.max(1, Math.min(len, pos[i + 1] - pos[i] || 1));
+      return { t: (pos[i] - start) * g, dur: len * g };
+    });
+  }
+  const rhOk = line => { const n = line.notes.length, rh = line.rh; return n && rh && rh.length >= n && rh.slice(0, n).every(x => x && x.t != null); };
   function lineEvents(s, line, t0 = 0) {
+    if (s.bpm && rhOk(line)) {
+      const n = line.notes.length, rh = line.rh.slice(0, n), a = rh[0].a;
+      const q = quantize(rh.map(x => ({ t: x.t, d: x.d })), s.bpm, a != null && rh.every(x => x.a === a) ? a : null);
+      const ev = []; let ni = 0;
+      units(line, s.lang).forEach((u, i) => u.notes.forEach((m, k) => { const z = q[ni++]; if (z) ev.push({ t: t0 + z.t, dur: z.dur, melody: [m], chord: k === 0 && line.chords[i] ? chordEvName(line.chords[i]) : null }); }));
+      return { ev, t: ev.length ? Math.max(...ev.map(e => e.t + e.dur)) : t0, bar: true };
+    }
     const us = units(line, s.lang), mel = line.notes.length > 0, ev = []; let t = t0;
     const e8 = s.bpm ? 30 / s.bpm : 0;   // mit Tempo: jede Silbe/Note eine Achtel
     us.forEach((u, i) => {
@@ -1875,7 +1917,8 @@ function sylSplit(word, lang) {
     const beat = s.bpm ? 60 / s.bpm : 0;
     sec.lines.filter(l => l.text.trim() || l.notes.length).forEach(l => {
       const r = lineEvents(s, l, t); ev = ev.concat(r.ev);
-      t = beat ? Math.ceil((r.t + beat * .5) / beat) * beat : r.t + .35;   // mit Tempo: nächste Zeile auf dem nächsten Schlag
+      // mit Tempo: nächste Zeile auf dem nächsten Schlag – bei echtem Rhythmus auf dem nächsten Takt
+      t = r.bar ? Math.ceil((r.t + .01) / (4 * beat)) * 4 * beat : beat ? Math.ceil((r.t + beat * .5) / beat) * beat : r.t + .35;
     });
     return ev;
   }
