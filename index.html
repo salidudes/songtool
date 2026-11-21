@@ -68,6 +68,14 @@
   .warnbtn { border-color: var(--warn) !important; color: var(--warn) !important; }
   .focus { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; text-align: left; }
   .focus-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; }
+  .focus-head #focusRec { margin-left: auto; }
+  .fhint { font-size: 12px; color: var(--muted); text-align: left; margin-top: 6px; }
+  #dock:not(.sticky) .level { display: none; }
+  #dock .tempo-row[hidden], #dock .err:empty { display: none; }
+  #dock .tempo-row { margin: 0 0 8px; padding: 0 0 8px; border-top: none; border-bottom: 1px solid var(--line); }
+  #dock .focus { margin-top: 0; padding-top: 0; border-top: none; }
+  #dock .level { margin: 0 0 8px; }
+  .pv .u .n { display: none; }   /* Noten macht der Partner – hier nur Text und Akkorde */
   .focus-head b { color: var(--accent); }
   .focus-head .fz { color: var(--muted); font-size: 12px; }
   .focus-head .toggle { margin-left: auto; font-size: 12px; }
@@ -233,6 +241,11 @@
   .cbtn b { display: block; font-size: 17px; }
   .cbtn i { font-style: normal; font-size: 11px; color: var(--muted); }
   .cbtn.best { border-color: var(--good); }
+  .cbtn.sel { border-color: var(--accent); background: rgba(240,180,41,.14); box-shadow: 0 0 0 1px var(--accent); }
+  .capinfo { min-height: 20px; font-size: 14px; color: var(--muted); text-align: center; margin: 2px 0 6px; }
+  .capinfo b { color: var(--accent); font-size: 18px; }
+  .capinfo.on { color: var(--text); }
+  #pHum.recon, #pPlay.recon { border-color: var(--warn); color: var(--warn); }
   .cbtn .fit { display: block; font-size: 10px; color: var(--good); letter-spacing: 1px; min-height: 12px; }
   .prow { display: flex; gap: 6px; }
   .prow input { flex: 1; min-width: 0; }
@@ -248,7 +261,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v25</small></h1>
+    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v26</small></h1>
     <div class="settings">
       <button id="syncDot" title="Synchronisation">☁ aus</button>
       <button class="btn sm" id="settingsBtn" title="Einstellungen">⚙</button>
@@ -274,7 +287,7 @@
   <!-- ================= SCHREIBEN ================= -->
   <div id="viewWrite" style="display:flex;flex-direction:column;gap:12px">
     <section class="card live" id="dock">
-      <div class="dock-top">
+      <div class="dock-top" style="display:none">
         <div class="note idle" id="note">–</div>
         <div class="dock-mid">
           <div class="meta" id="meta">Tippe auf Start und sing</div>
@@ -282,7 +295,7 @@
         </div>
         <button class="btn primary" id="startBtn">🎤 Start</button>
       </div>
-      <canvas id="trace"></canvas>
+      <canvas id="trace" style="display:none"></canvas>
       <div class="level"><span>Mikro</span><div class="lvl"><div id="levelBar"></div></div></div>
       <div class="err" id="err"></div>
       <div class="tempo-row" id="tempoRow" hidden></div>
@@ -297,7 +310,7 @@
       <button class="btn addone" id="addSec" title="Neuen Teil hinzufügen">＋ Teil hinzufügen</button>
       <div class="controls" style="margin-top:12px"><button class="btn" data-claude>🤖 An Claude senden</button></div>
       <p class="hint">Schreib den Text einfach ins Feld. Die Silben trennt die App selbst. Falls eine Trennung nicht stimmt, trenn das Wort mit Bindestrich (<i>Au-gen-blick</i>), oder setz einen Bindestrich ans Ende, damit es nicht getrennt wird (<i>time-</i>).<br>
-      Die Zeile mit dem gelben Balken ist die, in die notiert wird. Klick in eine Textzeile oder tippe sie unten an, um sie zu wählen. Tippst du auf eine Silbe, kannst du dort einen Akkord setzen.</p>
+      Tippst du auf eine Silbe, kannst du dort einen Akkord setzen – auswählen, Grundton summen oder auf dem Instrument spielen. Melodie und Rhythmus holt der Partner aus deinen Memos.</p>
     </section>
   </div>
 
@@ -335,8 +348,7 @@
     </section>
     <section class="card">
       <div class="cardtitle">Aufnahme</div>
-      <label class="toggle"><input type="checkbox" id="smooth"> Ton glätten (ruhigere Anzeige, mittelt kleine Schwankungen)</label>
-      <label class="toggle"><input type="checkbox" id="keyFit"> Unsauber gesungene Töne an die Tonart anpassen (sauber gesungene «fremde» Töne bleiben; fremde Töne werden orange markiert)</label>
+      <label class="toggle"><input type="checkbox" id="keyFit"> Memos: unsauber gesungene Töne an Stimmung und Tonart anpassen (sauber gesungene «fremde» Töne bleiben)</label>
     </section>
     <section class="card">
       <div class="cardtitle">Timing mit Metronom</div>
@@ -372,9 +384,12 @@
   <div class="picker">
     <h3 id="pTitle">Akkord</h3>
     <div class="sub" id="pSub"></div>
+    <div class="prow"><button class="btn" id="pHum" style="flex:1" title="Den Grundton summen – danach die passende Art (Dur, Moll, 7 …) auswählen">🎙 Grundton summen</button><button class="btn" id="pPlay" style="flex:1" title="Den Akkord auf Gitarre, Klavier o.ä. anschlagen">🎸 Akkord spielen</button></div>
+    <div class="capinfo" id="pCap"></div>
     <div class="cgrid" id="pGrid"></div>
+    <div class="sub" style="margin:0">Antippen = anhören · nochmals antippen = setzen</div>
     <div class="prow"><input type="text" id="pCustom" placeholder="Eigener Akkord, z.B. Fmaj7, Dsus4, G/H"><button class="btn" id="pCustomOk">Setzen</button></div>
-    <div class="prow"><button class="btn" id="pRemove" style="flex:1">Akkord entfernen</button><button class="btn" id="pCancel" style="flex:1">Abbrechen</button></div>
+    <div class="prow"><button class="btn" id="pRemove" style="flex:1">Entfernen</button><button class="btn" id="pCancel" style="flex:1">Abbrechen</button><button class="btn primary" id="pSet" style="flex:1" disabled>✓ Setzen</button></div>
   </div>
 </div>
 <div class="tappad" id="tapPad" hidden>
@@ -546,6 +561,8 @@ function sylSplit(word, lang) {
     const h = new Array(12).fill(0); let count = 0;
     allLines(s).forEach(l => l.notes.forEach((m, i) => { h[((m % 12) + 12) % 12] += i === 0 ? 1.5 : 1; count++; }));
     (extra || []).forEach(m => { h[((m % 12) + 12) % 12]++; count++; });
+    // gesetzte Akkorde zählen mit – so kennt die App die Tonart auch ohne Melodie
+    allLines(s).forEach(l => Object.values(l.chords || {}).forEach(c => { const ch = chordNotes(c.txt != null ? c.txt : intl(c.r, false) + SUF[c.q], c.txt != null && settings.naming === "de"); if (!ch) return; ch.iv.forEach((iv, i) => h[(ch.root + iv) % 12] += i === 0 ? 1.5 : 1); count += 2; }));
     if (count < 5) return { list: [], count };
     const list = [];
     for (let t = 0; t < 12; t++) {
@@ -608,7 +625,10 @@ function sylSplit(word, lang) {
   const SUF = { maj: "", min: "m", dim: "°" };
   const DIA_MAJ = [[0,"maj","I",1],[7,"maj","V",.9],[5,"maj","IV",.9],[9,"min","vi",.8],[2,"min","ii",.7],[4,"min","iii",.5],[11,"dim","vii°",.2]];
   const DIA_MIN = [[0,"min","i",1],[7,"maj","V",.9],[5,"min","iv",.85],[8,"maj","VI",.85],[3,"maj","III",.8],[10,"maj","VII",.8],[7,"min","v",.6],[2,"dim","ii°",.2]];
-  const chordLabel = c => c.txt != null ? c.txt : pcName(c.r, flats) + SUF[c.q];
+  // Notennamen für Akkorde: mit bekannter Tonart passend (♯ oder ♭), sonst die gebräuchlichen (Bb, Eb, Ab statt A♯, D♯, G♯)
+  let keyKnown = false;
+  const nicePc = pc => keyKnown || settings.acc === "flat" || settings.acc === "sharp" ? pcName(pc, flats) : pcName(pc, [3, 8, 10].includes(((pc % 12) + 12) % 12));
+  const chordLabel = c => c.txt != null ? c.txt : nicePc(c.r) + SUF[c.q];
   function candidates(key) {
     if (key) return (key.mode === "maj" ? DIA_MAJ : DIA_MIN).map(([iv, q, rn, pref]) => ({ r: (key.t + iv) % 12, q, rn, pref }));
     const out = []; for (let r = 0; r < 12; r++) out.push({ r, q: "maj", rn: "", pref: .5 }, { r, q: "min", rn: "", pref: .45 }); return out;
@@ -640,6 +660,8 @@ function sylSplit(word, lang) {
       parts.forEach((p, i) => toks.push({ t: p, end: i === parts.length - 1 }));
     });
     if (!toks.length) return line.notes.map(m => ({ t: "", end: true, notes: [m] }));
+    // Töne pro Silbe (ns), wenn bekannt (z.B. vom Partner: «me=D4~E4» mitten in der Zeile); sonst ein Ton pro Silbe, Rest auf die letzte
+    if (Array.isArray(line.ns) && line.ns.length === toks.length && line.ns.reduce((a, b) => a + b, 0) === line.notes.length) { let k = 0; return toks.map((tk, i) => { const a = k; k += line.ns[i]; return { ...tk, notes: line.notes.slice(a, k) }; }); }
     return toks.map((tk, i) => ({ ...tk, notes: i < toks.length - 1 ? (line.notes[i] != null ? [line.notes[i]] : []) : line.notes.slice(i) }));
   }
   // Ton löschen, ohne den Rhythmus zu verlieren: der Nachbar übernimmt die Zeit – ein Doppelton wird so zu einem langen Ton.
@@ -658,7 +680,20 @@ function sylSplit(word, lang) {
       else if (prev && (same(j - 1) || prev.d == null || prev.t + prev.d >= x.t - .06)) prev.d = Math.max(prev.d || 0, end - prev.t);
     }
     if (line.rh) line.rh.splice(j, 1);
+    if (Array.isArray(line.ns) && line.ns.reduce((a, b) => a + b, 0) === n) { let k = 0; for (let i = 0; i < line.ns.length; i++) { k += line.ns[i]; if (j < k) { line.ns[i]--; break; } } }
     line.notes.splice(j, 1);
+  }
+  // Silben aus «Silbe=Ton | …» auf die Silben des Textes legen (auch wenn anders getrennt: «where» = «whe»+«re»,
+  // «wa»+«ters» = «waters»). Gibt die Anzahl Töne pro Text-Silbe zurück, oder null wenn der Text nicht passt.
+  function nsAlign(parts, toks) {
+    const norm = x => String(x || "").toLowerCase().normalize("NFC").replace(/[^\p{L}\p{N}]/gu, "");
+    const T = toks.map(norm), P = parts.map(p => norm(p.s));
+    if (T.join("") && T.join("") === P.join("")) {
+      const ns = toks.map(() => 0), startOf = []; let pos = 0; T.forEach((t, i) => { startOf.push(pos); pos += t.length; });
+      let c = 0; P.forEach((p, k) => { let ti = 0; while (ti + 1 < T.length && startOf[ti + 1] <= c) ti++; ns[ti] += parts[k].n; c += p.length; });
+      return ns;
+    }
+    return parts.length === toks.length ? parts.map(p => p.n) : null;
   }
   function spanNotes(line, us, i) {
     const out = []; for (let j = i; j < us.length; j++) { if (j > i && line.chords[j]) break; out.push(...us[j].notes); } return out;
@@ -683,7 +718,6 @@ function sylSplit(word, lang) {
     paint();
   }
   setupSeg("segName", "naming"); setupSeg("segAcc", "acc");
-  $("smooth").checked = settings.smooth; $("smooth").onchange = e => { settings.smooth = e.target.checked; saveSettings(); };
   $("keyFit").checked = keyFitOn(); $("keyFit").onchange = e => { settings.keyFit = e.target.checked; saveSettings(); refreshAll(); };
 
   $("showNotes").checked = settings.showNotes; $("showNotes").onchange = e => { settings.showNotes = e.target.checked; saveSettings(); renderSheet(); };
@@ -738,7 +772,7 @@ function sylSplit(word, lang) {
 
   function refreshKey() {
     const s = song(), det = detectKeys(s), k = effKey(s);
-    flats = settings.acc === "flat" ? true : settings.acc === "sharp" ? false : keyIsFlat(k);
+    flats = settings.acc === "flat" ? true : settings.acc === "sharp" ? false : keyIsFlat(k); keyKnown = !!k;
     const sel = $("keySel"), prev = s.key || "auto"; sel.innerHTML = "";
     const auto = document.createElement("option"); auto.value = "auto";
     auto.textContent = det.list[0] ? "Auto: " + keyName(det.list[0]) : "Auto";
@@ -797,7 +831,7 @@ function sylSplit(word, lang) {
       const el = document.createElement("div"); el.className = "sec" + (si === s.active.s ? " active" : ""); el.dataset.s = si; el.dataset.id = sec.id;
       const opts = TYPES.map(t => `<option${t === sec.type ? " selected" : ""}>${t}</option>`).join("");
       const lbl = secLabel(s, si), num = lbl !== sec.type ? lbl.slice(sec.type.length) : "";
-      el.innerHTML = `<div class="sec-head"><select>${opts}</select><span class="num">${num}</span><span class="here">● hier wird notiert</span>
+      el.innerHTML = `<div class="sec-head"><select>${opts}</select><span class="num">${num}</span>
           <span class="acts"><button class="btn sm ghost" data-a="play" title="Teil mit Akkorden und Melodie anhören">▶</button><button class="btn sm ghost recbtn" data-a="rec" title="Memo aufnehmen">🎙</button>
           <button class="btn sm ghost" data-a="dup" title="Duplizieren">⧉</button>
           <button class="btn sm ghost" data-a="up" title="Nach oben">↑</button>
@@ -847,94 +881,12 @@ function sylSplit(word, lang) {
     const s = song(); if (!s) return; clampActive(s);
     const si = s.active.s, sec = s.sections[si], box = $("focus"); if (!sec) return;
     const recOn = typeof recState !== "undefined" && recState && recState.secId === sec.id;
-    box.innerHTML = `<div class="focus-head"><b>${esc(secLabel(s, si))}</b><span class="fz">Zeile ${s.active.l + 1}</span>
+    box.innerHTML = `<div class="focus-head"><b>${esc(secLabel(s, si))}</b>
       <button class="btn sm${Metro.on ? " metro-on" : ""}" id="tempoBtn" title="Tempo und Metronom">♩ ${s.bpm ? s.bpm + (s.bpmAuto !== false ? " auto" : "") : "Tempo"}</button>
-      <label class="toggle sm" title="Gehaltene Töne automatisch in die aktive Zeile schreiben"><input type="checkbox" id="autoAdd"${settings.auto ? " checked" : ""}> mitschreiben</label>
-      <button class="btn sm${recOn ? " recon" : ""}" id="focusRec" title="Memo für diesen Teil aufnehmen">${recOn ? "■ " + fmtT((Date.now() - recState.t0) / 1000) : "🎙 Memo"}</button></div><div class="focus-lines"></div>`;
-    $("autoAdd").onchange = e => { settings.auto = e.target.checked; saveSettings(); };
+      <button class="btn${recOn ? " recon" : " primary"}" id="focusRec" title="Memo für diesen Teil aufnehmen">${recOn ? "■ Stopp " + fmtT((Date.now() - recState.t0) / 1000) : "🎙 Memo aufnehmen"}</button></div>
+      <div class="fhint">${recOn ? "Aufnahme läuft …" : `Das Memo landet bei «${esc(secLabel(s, si))}». Tipp im Text auf eine Silbe, um dort einen Akkord zu setzen.`}</div>`;
     $("focusRec").onclick = () => toggleRecording(s, sec);
     $("tempoBtn").onclick = () => { const r = $("tempoRow"); r.hidden = !r.hidden; if (!r.hidden) renderTempo(); };
-    const fl = box.querySelector(".focus-lines"); let act = null;
-    sec.lines.forEach((line, li) => {
-      const on = li === s.active.l;
-      if (!line.text.trim() && !line.notes.length && !on) return;
-      const row = document.createElement("div"); row.className = "fline" + (on ? " on" : "");
-      row.innerHTML = `<div class="ls">${lsHTML(line, s.lang, false) || '<span class="empty">(leere Zeile – Text unten eintippen oder einfach singen)</span>'}</div>`;
-      if (on && line.notes.length) {
-        const t = document.createElement("div"); t.className = "ftools";
-        t.innerHTML = `<button class="btn sm ghost" data-f="play">▶</button><button class="btn sm ghost" data-f="undo">⌫ letzten Ton</button><button class="btn sm${rhythmOpen ? " primary" : " ghost"}" data-f="rhythm" title="Rhythmus im Taktraster ansehen und verschieben">♫ Rhythmus</button>`;
-        t.onclick = e => { const f = e.target.dataset.f; if (f === "rhythm") { rhythmOpen = !rhythmOpen; rSel = 0; renderFocus(); e.stopPropagation(); return; } if (f === "undo" && line.notes.length) { removeNote(line, line.notes.length - 1); persist(); afterNotesChanged(si); } if (f === "play") pianoToggle(e.target, () => lineEvents(s, line).ev); e.stopPropagation(); };
-        row.appendChild(t);
-      }
-      row.onclick = () => setActive(si, li);
-      fl.appendChild(row); if (on) act = row;
-    });
-    if (!sec.lines.some(l => l.text.trim())) fl.insertAdjacentHTML("afterbegin", '<div class="empty" style="padding:2px 4px">Noch kein Text in diesem Teil.</div>');
-    const rb = document.createElement("div"); rb.id = "rhythmBox"; box.appendChild(rb);
-    if (rhythmOpen && sec.lines[s.active.l] && sec.lines[s.active.l].notes.length) renderRhythm(s, si, s.active.l);
-    if (act) requestAnimationFrame(() => { const top = act.offsetTop - fl.offsetTop; if (top < fl.scrollTop || top + act.offsetHeight > fl.scrollTop + fl.clientHeight) fl.scrollTop = top - 8; });
-  }
-  // =============== Rhythmus-Ansicht: Taktraster mit verschiebbaren Tönen ===============
-  let rhythmOpen = false, rSel = 0;
-  function renderRhythm(s, si, li) {
-    const box = $("rhythmBox"), line = s.sections[si].lines[li]; if (!box || !line) return;
-    const spb = spbOf(s), M = meterOf(s), bpb = M.beats, perBar = bpb * spb, cw = 15;
-    const q = lineQ(s, line).map(x => ({ p: x.p, l: x.l }));
-    const step = s.grid === "16" || s.grid === "off" ? 1 : Math.max(1, spb / 2);
-    if (rSel >= q.length) rSel = q.length - 1;
-    const labels = []; units(line, s.lang).forEach(u => u.notes.forEach((m, k) => labels.push({ syl: k === 0 ? (u.t || "·") : "~", m })));
-    const end = Math.max(...q.map(x => x.p + x.l)), bars = Math.max(1, Math.ceil((end + step) / perBar));
-    const W = bars * perBar * cw;
-    const beatsHead = Array.from({ length: bars * bpb }, (_, i) => `<span style="left:${i * spb * cw}px" class="${i % bpb === 0 ? "bar" : ""}">${i % bpb === 0 ? (i / bpb + 1) + "." : (i % bpb + 1)}</span>`).join("");
-    box.innerHTML = `<div class="rtools"><button class="btn sm" data-r="left" title="Früher">◀</button><button class="btn sm" data-r="right" title="Später">▶</button>
-        <button class="btn sm" data-r="shorter" title="Kürzer">⇤</button><button class="btn sm" data-r="longer" title="Länger">⇥</button>
-        <span class="rinfo">${labels[rSel] ? "«" + esc(labels[rSel].syl) + "» " + noteName(labels[rSel].m) + octave(labels[rSel].m) : ""} · Schritt: ${step === 1 ? "Sechzehntel" : "Achtel"}</span>
-        <button class="btn sm${settings.ripple ? " primary" : ""}" data-r="ripple" title="Beim Verschieben und Verlängern alle folgenden Töne mitnehmen">⇉ Rest mitziehen</button>
-        <button class="btn sm" data-r="play" title="Zeile abspielen">▶ Hören</button>${hasQ(line) ? '<button class="btn sm ghost" data-r="reset" title="Wieder den gesungenen Rhythmus nehmen">Zurücksetzen</button>' : ""}</div>
-      <div class="rscroll"><div class="rgrid" style="width:${W}px;--cw:${cw}px;--beat:${spb * cw}px;--bar:${perBar * cw}px">
-        <div class="rhead">${beatsHead}</div>
-        ${q.map((x, i) => `<div class="rblk${i === rSel ? " sel" : ""}" data-i="${i}" style="left:${x.p * cw}px;width:${Math.max(8, x.l * cw - 2)}px"><b>${esc(labels[i] ? labels[i].syl : "")}</b><small>${labels[i] ? noteName(labels[i].m) + octave(labels[i].m) : ""}</small></div>`).join("")}
-      </div></div>`;
-    const commit = nq => { line.q = nq; persist(); renderRhythm(s, si, li); };
-    const ripple = !!settings.ripple;
-    // verschieben: gebundene Töne bleiben gebunden (der vorherige wächst/schrumpft mit); «Rest mitziehen» nimmt alle folgenden mit
-    const move = (i, d) => {
-      const nq = q.map(x => ({ ...x })), x = nq[i], prev = nq[i - 1], next = nq[i + 1];
-      const tiedPrev = prev && prev.p + prev.l === x.p, tiedNext = next && x.p + x.l === next.p, lo = prev ? prev.p + 1 : 0;
-      if (ripple) { const dd = Math.max(lo - x.p, d); for (let k = i; k < nq.length; k++) nq[k].p += dd; }
-      else {
-        x.p = Math.max(lo, Math.min(next ? next.p - 1 : 9999, x.p + d));
-        if (next) { if (tiedNext && d < 0) x.l = next.p - x.p; else if (x.p + x.l > next.p) x.l = Math.max(1, next.p - x.p); }
-      }
-      if (prev && (tiedPrev || prev.p + prev.l > x.p)) prev.l = Math.max(1, x.p - prev.p);
-      return nq;
-    };
-    box.querySelector(".rtools").onclick = e => {
-      const r = e.target.dataset.r; if (!r) return; e.stopPropagation();
-      if (r === "left") commit(move(rSel, -step));
-      if (r === "right") commit(move(rSel, step));
-      if (r === "shorter" || r === "longer") {
-        const nq = q.map(x => ({ ...x })), x = nq[rSel], next = nq[rSel + 1], dl = r === "longer" ? step : -step;
-        if (ripple) { const nl = Math.max(1, x.l + dl), dd = nl - x.l; x.l = nl; for (let k = rSel + 1; k < nq.length; k++) nq[k].p += dd; }
-        else x.l = Math.max(1, Math.min(next ? next.p - x.p : 64, x.l + dl));
-        commit(nq);
-      }
-      if (r === "ripple") { settings.ripple = !settings.ripple; saveSettings(); renderRhythm(s, si, li); }
-      if (r === "play") pianoToggle(e.target, () => lineEvents(s, line).ev);
-      if (r === "reset") { delete line.q; persist(); renderRhythm(s, si, li); }
-    };
-    // Block antippen = auswählen; ziehen = verschieben
-    box.querySelectorAll(".rblk").forEach(b => {
-      b.onpointerdown = e => {
-        e.preventDefault(); e.stopPropagation(); const i = +b.dataset.i, x0 = e.clientX; let moved = 0;
-        rSel = i; box.querySelectorAll(".rblk").forEach(o => o.classList.toggle("sel", o === b));
-        b.setPointerCapture(e.pointerId);
-        const drag = ripple ? [...box.querySelectorAll(".rblk")].filter(o => +o.dataset.i >= i) : [b];
-        b.onpointermove = ev => { moved = Math.round((ev.clientX - x0) / (cw * step)) * step; drag.forEach(o => o.style.transform = `translateX(${moved * cw}px)`); };
-        b.onpointerup = () => { b.onpointermove = b.onpointerup = null; if (moved) commit(move(i, moved)); else renderRhythm(s, si, li); };
-      };
-    });
-    const sel = box.querySelector(".rblk.sel"); if (sel) { const sc = box.querySelector(".rscroll"); if (sel.offsetLeft < sc.scrollLeft || sel.offsetLeft > sc.scrollLeft + sc.clientWidth - 40) sc.scrollLeft = sel.offsetLeft - 40; }
   }
   function dockState() {
     const live = running || (typeof recState !== "undefined" && !!recState);
@@ -967,24 +919,6 @@ function sylSplit(word, lang) {
       pl.onclick = () => setActive(si, li);
       pl.querySelectorAll(".u").forEach(u => u.onclick = e => { e.stopPropagation(); setActive(si, li); openPicker(si, li, +u.dataset.u); });
       el.appendChild(pl);
-      if (active) {
-        const st = document.createElement("div"); st.className = "nstrip";
-        if (!line.notes.length) st.innerHTML = '<span class="empty">Noch keine Noten in dieser Zeile – tippe auf «Start» und sing; gehaltene Töne landen automatisch hier.</span>';
-        line.notes.forEach((m, j) => {
-          const c = document.createElement("span"); c.className = "chip";
-          c.innerHTML = noteName(m) + "<small>" + octave(m) + '</small><span class="x">✕</span>';
-          c.onclick = e => {
-            if (e.target.classList.contains("x")) { removeNote(line, j); persist(); afterNotesChanged(si); return; }
-            playTone(m, .6); c.classList.add("playing"); setTimeout(() => c.classList.remove("playing"), 600);
-          };
-          st.appendChild(c);
-        });
-        if (line.notes.length) {
-          const p = document.createElement("button"); p.className = "btn sm ghost"; p.textContent = "▶"; p.title = "Zeile abspielen";
-          p.onclick = () => pianoToggle(p, () => lineEvents(s, line).ev); st.appendChild(p);
-        }
-        el.appendChild(st);
-      }
     });
   }
   function afterNotesChanged(si) {
@@ -1022,33 +956,190 @@ function sylSplit(word, lang) {
   }
 
   let pick = null;
+  // =============== Akkord setzen: auswählen, Grundton summen oder Akkord spielen ===============
+  // Akkord-Objekt: {r, q} für Dur/Moll/vermindert, sonst {txt}. Antippen spielt ihn vor, nochmals antippen setzt ihn.
+  const cName = chordLabel, capName = nicePc;
   function openPicker(si, li, ui) {
     const s = song(), line = s.sections[si].lines[li], us = units(line, s.lang), key = effKey(s);
-    pick = { si, li, ui };
-    const notes = spanNotes(line, us, ui), list = scoreChords(notes, key).slice(0, key ? 8 : 12);
+    pick = { si, li, ui, sel: null };
+    const notes = spanNotes(line, us, ui);
     $("pTitle").textContent = "Akkord für «" + (us[ui].t || "Note " + (ui + 1)) + "»";
     $("pSub").textContent = (key ? keyName(key) : "Tonart noch unbekannt") + (notes.length ? " · Melodie hier: " + notes.map(noteName).join(" ") : "");
-    const grid = $("pGrid"); grid.innerHTML = "";
-    list.forEach((c, k) => {
-      const b = document.createElement("button"); b.className = "cbtn" + (k === 0 && notes.length ? " best" : "");
-      b.innerHTML = `<b>${esc(pcName(c.r, flats) + SUF[c.q])}</b><i>${c.rn || "&nbsp;"}</i><span class="fit">${notes.length ? "●".repeat(Math.round(c.fit * 3)) : ""}</span>`;
-      b.onclick = () => { line.chords[ui] = { r: c.r, q: c.q }; playChord(c); closePicker(true); };
-      grid.appendChild(b);
-    });
+    capInfo("");
+    pickGrid(scoreChords(notes, key).slice(0, key ? 8 : 12).map((c, k) => ({ c: { r: c.r, q: c.q }, sub: c.rn || "", best: k === 0 && notes.length, fit: notes.length ? c.fit : null })));
     $("pCustom").value = line.chords[ui]?.txt || "";
     $("overlay").classList.remove("hidden");
   }
+  function capInfo(html, on) { const el = $("pCap"); el.innerHTML = html; el.classList.toggle("on", !!on); }
+  function pickGrid(items) {
+    const grid = $("pGrid"); grid.innerHTML = ""; $("pSet").disabled = true; if (pick) pick.sel = null;
+    items.forEach(it => {
+      const b = document.createElement("button"); b.className = "cbtn" + (it.best ? " best" : "");
+      b.innerHTML = `<b>${esc(cName(it.c))}</b><i>${esc(it.sub || "") || "&nbsp;"}</i><span class="fit">${it.fit != null ? "●".repeat(Math.round(it.fit * 3)) : ""}</span>`;
+      b.onclick = () => {
+        if (!pick) return;
+        if (b.classList.contains("sel")) { setPicked(it.c); return; }   // zweites Antippen = setzen
+        grid.querySelectorAll(".cbtn").forEach(x => x.classList.toggle("sel", x === b));
+        pick.sel = it.c; $("pSet").disabled = false; playChord(it.c);
+      };
+      grid.appendChild(b);
+    });
+    return grid;
+  }
+  function setPicked(c) { capStop(); song().sections[pick.si].lines[pick.li].chords[pick.ui] = c; closePicker(true); }
   function closePicker(changed) {
+    capStop(); stopAll();
     $("overlay").classList.add("hidden");
-    if (changed && pick) { persist(); renderPreview(pick.si); if (sheetVisible()) renderSheet(); }
+    if (changed && pick) { persist(); afterNotesChanged(pick.si); if (sheetVisible()) renderSheet(); }   // Akkorde bestimmen auch die Tonart mit
     pick = null;
   }
   $("pCancel").onclick = () => closePicker(false);
   $("overlay").onclick = e => { if (e.target.id === "overlay") closePicker(false); };
   $("pRemove").onclick = () => { delete song().sections[pick.si].lines[pick.li].chords[pick.ui]; closePicker(true); };
-  $("pCustomOk").onclick = () => { const v = $("pCustom").value.trim(); if (!v) return; song().sections[pick.si].lines[pick.li].chords[pick.ui] = { txt: v }; closePicker(true); };
+  $("pSet").onclick = () => { if (pick && pick.sel) setPicked(pick.sel); };
+  $("pCustomOk").onclick = () => { const v = $("pCustom").value.trim(); if (!v) return; setPicked({ txt: v }); };
   $("pCustom").onkeydown = e => { if (e.key === "Enter") $("pCustomOk").click(); };
 
+  // Grundton gesummt → passende Akkorde auf diesem Ton (die zur Tonart passende Art zuerst)
+  function rootChoices(r, key) {
+    const n = capName(r), dia = key ? ((key.mode === "maj" ? DIA_MAJ : DIA_MIN).find(([iv]) => (key.t + iv) % 12 === r) || null) : null;
+    const list = [{ c: { r, q: "maj" }, sub: "Dur" }, { c: { r, q: "min" }, sub: "Moll" }, { c: { txt: n + "7" }, sub: "Septakkord" }, { c: { txt: n + "maj7" }, sub: "grosse Septime" },
+      { c: { txt: n + "m7" }, sub: "Moll 7" }, { c: { txt: n + "sus4" }, sub: "Quarte statt Terz" }, { c: { txt: n + "sus2" }, sub: "Sekunde statt Terz" }, { c: { txt: n + "5" }, sub: "Powerchord" }, { c: { r, q: "dim" }, sub: "vermindert" }];
+    if (dia) { const i = list.findIndex(x => x.c.q === dia[1]); if (i > 0) list.unshift(...list.splice(i, 1)); list[0].best = true; list[0].sub += " · " + dia[2]; }
+    return list;
+  }
+  $("pHum").onclick = async () => {
+    if (Cap.on) { capStop(); return; }
+    const key = effKey(song());
+    $("pHum").classList.add("recon"); $("pHum").textContent = "■ Stopp";
+    capInfo("Summ den Grundton – ein gleichmässiges «mmm» …", true);
+    const m = await capHum(v => capInfo(`<b>${noteName(Math.round(v))}</b> ${octave(Math.round(v))} …`, true));
+    $("pHum").classList.remove("recon"); $("pHum").textContent = "🎙 Grundton summen";
+    if (m === undefined) { capInfo("Kein Mikrofon – bitte im Browser erlauben"); return; }
+    if (m == null) { capInfo("Nichts erkannt – nochmals, etwas länger und gleichmässig"); return; }
+    const r = ((Math.round(m) % 12) + 12) % 12;
+    capInfo(`Grundton <b>${capName(r)}</b> – welche Art? Antippen zum Anhören`, true);
+    const grid = pickGrid(rootChoices(r, key)); grid.firstChild && grid.firstChild.click();
+  };
+  $("pPlay").onclick = async () => {
+    if (Cap.on) { capStop(); return; }
+    $("pPlay").classList.add("recon"); $("pPlay").textContent = "■ Stopp";
+    capInfo("Schlag den Akkord einmal an und lass ihn klingen …", true);
+    const res = await capChord();
+    $("pPlay").classList.remove("recon"); $("pPlay").textContent = "🎸 Akkord spielen";
+    if (res === undefined) { capInfo("Kein Mikrofon – bitte im Browser erlauben"); return; }
+    if (!res || !res.list.length) { capInfo("Nichts erkannt – nochmals, etwas näher am Mikrofon"); return; }
+    const fl = keyKnown || settings.acc === "flat" || settings.acc === "sharp" ? flats : keyIsFlat(res.top), nn = pc => pcName(pc, fl);   // Töne so benennen, wie sie im erkannten Akkord heissen
+    capInfo(`Gehört: <b>${res.notes.map(nn).join(" ")}</b>${res.bass != null ? " · Bass " + nn(res.bass) : ""}`, true);
+    const grid = pickGrid(res.list.map((x, k) => ({ c: x.c, sub: x.sub, best: k === 0 }))); grid.firstChild && grid.firstChild.click();   // bester Treffer: vorspielen und vormerken
+  };
+
+  // ---- Mikrofon für die Akkord-Erkennung ----
+  const Cap = { on: false };
+  async function capOpen(big) {
+    Piano.setRec(true);
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    const c = ac(), src = c.createMediaStreamSource(stream), lv = c.createAnalyser(); lv.fftSize = c.sampleRate > 48000 ? 4096 : 2048; src.connect(lv);
+    let an = null; if (big) { an = c.createAnalyser(); an.fftSize = 16384; an.smoothingTimeConstant = 0; src.connect(an); }
+    Object.assign(Cap, { on: true, stream, src, lv, an, c, raf: 0, timer: 0, stop: null });
+  }
+  function capStop() {
+    if (!Cap.on) return;
+    cancelAnimationFrame(Cap.raf); clearTimeout(Cap.timer);
+    try { Cap.stream.getTracks().forEach(t => t.stop()); Cap.src.disconnect(); } catch {}
+    Cap.on = false; Piano.setRec(false);
+    const f = Cap.stop; Cap.stop = null; if (f) f();
+  }
+  // Grundton: ein halbe Sekunde gleichmässig gesummt → Tonhöhe (MIDI, mit Kommastellen); null = nichts, undefined = kein Mikrofon
+  async function capHum(onNote) {
+    try { await capOpen(false); } catch { capStop(); return undefined; }
+    return new Promise(res => {
+      const buf = new Float32Array(Cap.lv.fftSize), vals = []; let out = null;
+      Cap.stop = () => res(out);
+      Cap.timer = setTimeout(() => { out = vals.length >= 8 ? median(vals) : null; capStop(); }, 8000);
+      const loop = () => {
+        Cap.lv.getFloatTimeDomainData(buf);
+        const { f, rms } = detectPitch(buf, Cap.c.sampleRate);
+        if (f > 0 && rms > .004) {
+          const m = 69 + 12 * Math.log2(f / 440); vals.push(m); if (vals.length > 40) vals.shift(); onNote && onNote(m);
+          if (vals.length >= 25) { const w = vals.slice(-25), md = median(w); if (median(w.map(v => Math.abs(v - md))) < .35) { out = md; capStop(); return; } }
+        }
+        Cap.raf = requestAnimationFrame(loop);
+      };
+      loop();
+    });
+  }
+  // Akkord: warten auf den Anschlag, dann ~1.3 s Spektrum sammeln und auswerten
+  async function capChord() {
+    try { await capOpen(true); } catch { capStop(); return undefined; }
+    return new Promise(res => {
+      const an = Cap.an, sum = new Float64Array(an.frequencyBinCount), spec = new Float32Array(an.frequencyBinCount), td = new Float32Array(Cap.lv.fftSize);
+      let state = "noise", t0 = performance.now(), noise = 1e9, peak = 0, tOn = 0, frames = 0, out = null;
+      const done = () => { out = frames >= 5 ? analyzeChord(sum, frames, Cap.c.sampleRate, an.fftSize) : null; capStop(); };
+      Cap.stop = () => res(out);
+      Cap.timer = setTimeout(done, 10000);
+      const loop = () => {
+        Cap.lv.getFloatTimeDomainData(td); let e = 0; for (let i = 0; i < td.length; i++) e += td[i] * td[i]; const rms = Math.sqrt(e / td.length), now = performance.now();
+        if (state === "noise") { noise = Math.min(noise, rms); if (now - t0 > 250) state = "wait"; }
+        else if (state === "wait") { if (rms > Math.max(.008, noise * 5)) { state = "hold"; tOn = now; } }
+        else {
+          peak = Math.max(peak, rms);
+          if (now - tOn > 90) { an.getFloatFrequencyData(spec); for (let k = 0; k < spec.length; k++) sum[k] += Math.pow(10, spec[k] / 20); frames++; }
+          if (now - tOn > 1400 || (frames > 12 && rms < peak * .12)) { done(); return; }
+        }
+        Cap.raf = requestAnimationFrame(loop);
+      };
+      loop();
+    });
+  }
+  // Welche Töne klingen? Schrittweise den stärksten Ton (Grundton + Obertöne) suchen und dessen Obertöne abziehen.
+  // Dann gegen Akkord-Muster vergleichen; der tiefste Ton gilt als Bass.
+  const CHORD_TPL = [["", [0, 4, 7], "Dur"], ["m", [0, 3, 7], "Moll"], ["7", [0, 4, 7, 10], "Septakkord"], ["maj7", [0, 4, 7, 11], "grosse Septime"], ["m7", [0, 3, 7, 10], "Moll 7"],
+    ["sus4", [0, 5, 7], "sus4"], ["sus2", [0, 2, 7], "sus2"], ["dim", [0, 3, 6], "vermindert"], ["aug", [0, 4, 8], "übermässig"], ["5", [0, 7], "Powerchord"], ["6", [0, 4, 7, 9], "Sexte"], ["m6", [0, 3, 7, 9], "Moll 6"], ["add9", [0, 2, 4, 7], "add9"]];
+  function analyzeChord(sum, frames, sr, fft) {
+    const binHz = sr / fft, R = Float64Array.from(sum, v => v / frames), N = R.length;
+    const near = (f, fn) => { const k = f / binHz, lo = Math.max(1, Math.floor(k * .985)), hi = Math.min(N - 1, Math.ceil(k * 1.015)); for (let i = lo; i <= hi; i++) fn(i); };
+    const peakAt = f => { let mx = 0; near(f, i => { if (R[i] > mx) mx = R[i]; }); return mx; };
+    const found = []; let first = 0;
+    for (let it = 0; it < 6; it++) {
+      let bn = -1, bs = 0;
+      for (let n = 36; n <= 84; n++) {
+        const f0 = 440 * Math.pow(2, (n - 69) / 12); let s = 0, mx = 0; const fund = peakAt(f0);
+        for (let h = 1; h <= 8 && f0 * h < 5000; h++) { const p = peakAt(f0 * h); s += p / Math.pow(h, .7); if (p > mx) mx = p; }
+        if (fund < mx * .1) s *= .5;   // ohne eigenen Grundton eher Oberton eines anderen Tons
+        if (s > bs) { bs = s; bn = n; }
+      }
+      if (bn < 0 || (first && bs < first * .2)) break;
+      if (!first) first = bs;
+      found.push({ n: bn, s: bs });
+      const f0 = 440 * Math.pow(2, (bn - 69) / 12);
+      for (let h = 1; h <= 8; h++) near(f0 * h, i => R[i] *= .12);
+    }
+    if (!found.length) return null;
+    const chroma = new Array(12).fill(0); found.forEach(x => chroma[x.n % 12] += x.s);
+    const mx = Math.max(...chroma), tot = chroma.reduce((a, b) => a + b, 0), pres = pc => Math.min(1, chroma[pc] / (mx * .2));
+    const strong = found.filter(x => x.s >= first * .3), bass = strong.length ? Math.min(...strong.map(x => x.n)) % 12 : null;
+    const cands = [];
+    for (let r = 0; r < 12; r++) for (const [suf, iv, sub] of CHORD_TPL) {
+      const pcs = iv.map(i => (r + i) % 12);
+      const cover = pcs.reduce((a, pc) => a + pres(pc), 0) / pcs.length;
+      const extra = chroma.reduce((a, v, pc) => a + (pcs.includes(pc) ? 0 : v), 0) / tot;
+      let sc = cover - 1.2 * extra - .02 * (pcs.length - 3) + (pres(r) < .5 ? -.3 : 0);
+      sc += bass == null ? 0 : bass === r ? .15 : pcs.includes(bass) ? .02 : -.1;
+      cands.push({ r, suf, sub, sc, slash: bass != null && bass !== r && pcs.includes(bass) });
+    }
+    cands.sort((a, b) => b.sc - a.sc);
+    const list = [], seen = new Set();
+    for (const c of cands) {
+      if (list.length >= 8) break;
+      const base = c.suf === "" ? { r: c.r, q: "maj" } : c.suf === "m" ? { r: c.r, q: "min" } : c.suf === "dim" ? { r: c.r, q: "dim" } : { txt: capName(c.r) + c.suf };
+      const nm = cName(base); if (seen.has(nm)) continue; seen.add(nm);
+      if (c.slash) { const sl = { txt: nm + "/" + capName(bass) }; list.push({ c: sl, sub: c.sub + " · Bass " + capName(bass), sc: c.sc }); }
+      list.push({ c: base, sub: c.sub, sc: c.sc });
+    }
+    const notes = [...new Set(found.filter(x => x.s >= first * .2).map(x => x.n % 12))];
+    return { list: list.slice(0, 8), notes, bass, top: { t: cands[0].r, mode: /^m(?!aj)/.test(cands[0].suf) || cands[0].suf === "dim" ? "min" : "maj" } };
+  }
   // =============== Chordsheet ===============
   function renderSheet() {
     const s = song(), k = effKey(s), card = $("sheetCard");
@@ -1125,15 +1216,16 @@ function sylSplit(word, lang) {
     if (s.meter) out += `Takt: ${meterOf(s).sig}\n`;
     out += `Sprache: ${s.lang === "en" ? "Englisch" : "Deutsch"}\n\n`;
     out += `Legende:\n- «Melodie» = meine GESUNGENE Melodie, Silbe für Silbe (Silbe=Note). Oktave wissenschaftlich, C4 = mittleres C. Mehrere Noten auf einer Silbe sind mit ~ verbunden.\n`;
-    out += `- «Akkorde» = Begleitakkorde, die ich gesetzt oder die App vorgeschlagen hat; «@ Silbe» = dort wechselt der Akkord.\n`;
+    out += `- «Akkorde» = Begleitakkorde, die ich in der App gesetzt (ausgewählt, gesummt oder gespielt) oder aus dem Partner übernommen habe; «@ Silbe» = dort wechselt der Akkord.\n`;
     out += `- Notennamen international: B = deutsches H, Bb = deutsches B.\n`;
     out += `- «Rhythmus» = pro Note «Position/Länge» in Sechzehnteln ab Taktanfang (0 = auf der Eins).\n`;
     out += `- «Memo» = separate Sprachaufnahme zu diesem Teil (Ton + Dauer, Phrasen mit / getrennt), z.B. eine gesummte Melodie-Idee.\n`;
+    out += `- «Memo-Rhythmus» = dieselben Töne im Taktraster: Position/Länge in Sechzehnteln ab dem ersten Takt des Memos, Phrasen mit | getrennt.\n`;
     s.sections.forEach((sec, si) => {
       const lines = sec.lines.filter(l => l.text.trim() || l.notes.length), memos = sec.memos || [];
       if (!lines.length && !memos.length) return;
       out += `\n[${secLabel(s, si)}]\n`;
-      memos.forEach(m => out += memoLine(m, fl) + "\n");
+      memos.forEach(m => out += memoLine(m, fl, s) + "\n");
       lines.forEach(line => {
         const us = units(line, s.lang);
         out += (line.text.trim() || "(ohne Text)") + "\n";
@@ -1296,6 +1388,7 @@ function sylSplit(word, lang) {
       if (legend) { if (/^-\s/.test(l)) return; legend = false; }
       if ((m = l.match(/^\[(.+)\]$/))) { const base = m[1].trim().replace(/\s+\d+$/, ""); sec = { id: uid(), type: TYPES.includes(base) ? base : m[1].trim(), lines: [], memos: [] }; out.sections.push(sec); last = null; return; }
       if (/^\s+Memo «/.test(l)) { const mm = parseMemoLine(l); if (mm && sec) sec.memos.push(mm); return; }
+      if (/^\s+Memo-Rhythmus «/.test(l)) return;   // rechnet die App selbst aus ihren Memos
       if (/^\s+Längen:/.test(l)) return;
       if ((m = l.match(/^\s+Rhythmus:\s*(.*)$/))) { if (last) last._rq = m[1]; return; }
       if ((m = l.match(/^\s+Melodie:\s*(.*)$/))) { if (last) last._mel = m[1]; return; }
@@ -1306,7 +1399,11 @@ function sylSplit(word, lang) {
     out.sections.forEach(sec => {
       if (!sec.lines.length) sec.lines.push(newLine());
       sec.lines.forEach(line => {
-        if (line._mel) line.notes = line._mel.split("|").flatMap(part => { const v = part.split("=").slice(1).join("="); return v.split("~").map(parseNote).filter(n => n != null); });
+        if (line._mel) {
+          const parts = line._mel.split("|").map(part => { const [syl, ...rest] = part.split("="); return { s: syl.trim(), notes: rest.join("=").split("~").map(parseNote).filter(n => n != null) }; });
+          line.notes = parts.flatMap(p => p.notes);
+          const ns = nsAlign(parts.map(p => ({ s: p.s, n: p.notes.length })), units({ text: line.text, notes: [] }, out.lang).map(u => u.t)); if (ns) line.ns = ns;
+        }
         if (line._chd) {
           const us = units(line, out.lang); let from = 0;
           line._chd.split(/,\s*(?![^()]*\))/).forEach(item => {
@@ -1337,9 +1434,10 @@ function sylSplit(word, lang) {
     let s = songs.find(x => (x.title || "").trim().toLowerCase() === p.title.trim().toLowerCase());
     if (s) {
       // gleiche Memos (Teil + Name) behalten ihre ID → die Aufnahme auf diesem Gerät bleibt verknüpft
-      const oldIds = {}; s.sections.forEach((sec, i) => (sec.memos || []).forEach(m => oldIds[secLabel(s, i) + "|" + m.name] = m.id));
+      // Memos kommen von diesem Gerät: die eigenen (mit genauen Zeiten und Metronom-Bezug) behalten statt der Text-Kopie
+      const oldIds = {}; s.sections.forEach((sec, i) => (sec.memos || []).forEach(m => oldIds[secLabel(s, i) + "|" + m.name] = m));
       Object.assign(s, { key: p.key !== "auto" ? p.key : s.key, lang: p.lang, bpm: p.bpm || s.bpm || null, bpmAuto: p.bpm ? p.bpmAuto : s.bpmAuto, meter: p.meter && (!s.meter || s.meter.sig !== p.meter.sig) ? p.meter : s.meter, sections: p.sections, active: { s: 0, l: 0 } });
-      s.sections.forEach((sec, i) => (sec.memos || []).forEach(m => { const id = oldIds[secLabel(s, i) + "|" + m.name]; if (id) m.id = id; }));
+      s.sections.forEach((sec, i) => { sec.memos = (sec.memos || []).map(m => oldIds[secLabel(s, i) + "|" + m.name] || m); });
     }
     else { s = Object.assign(newSong(p.title || "Song aus Partner"), { key: p.key, lang: p.lang, bpm: p.bpm || null, bpmAuto: p.bpm ? p.bpmAuto : true, meter: p.meter || null, sections: p.sections }); songs.push(s); }
     curId = s.id; persist(); refreshAll();
@@ -1798,41 +1896,17 @@ function sylSplit(word, lang) {
     const { s, sec } = findSec(memoEdit.songId, memoEdit.secId), M = memoEdit.memo, box = $("memoBody"); box.innerHTML = "";
     const head = document.createElement("div"); head.className = "phr";
     head.innerHTML = `<div class="prow"><input type="text" id="mName" placeholder="Name"><select id="mKind">${Object.entries(KIND).map(([k, v]) => `<option value="${k}"${M.kind === k ? " selected" : ""}>${v}</option>`).join("")}</select></div>
-      ${M.kind === "gesang" && M.phrases.length ? `<label class="toggle"><input type="checkbox" id="mApply"${M.apply ? " checked" : ""}> Töne auf die Textzeilen verteilen</label>` : ""}
-      ${M.kind === "gesang" && M.apply ? `<label class="toggle"><input type="checkbox" id="mReplace" checked> Bestehende Melodie der Zeilen ersetzen</label>` : ""}
-      <div class="sub" style="margin:0">${M.kind === "gesang" ? "Gesang gehört zu den Textzeilen dieses Teils." : "Wird als eigenes Memo bei diesem Teil gespeichert, unabhängig vom Text."}</div>
+      <div class="sub" style="margin:0">${M.phrases.length ? "Melodie und Rhythmus schreibt der Partner daraus auf (mit «An Claude senden»)." : "Keine Töne erkannt – das Memo wird trotzdem gespeichert."}</div>
       ${memoEdit.bpm && !(memoEdit.fromMetro && s.bpm === memoEdit.bpm) ? `<div class="sub" style="margin:0">${memoEdit.fromMetro ? "Tempo vom Metronom" : "Tempo erkannt – wähl, was sich richtig anfühlt"}:
         ${memoEdit.bpmOpts.map(v => `<button class="btn sm${v === memoEdit.bpm ? " primary" : ""}" data-bpmopt="${v}">${v} BPM</button>`).join(" ")}</div>
         <label class="toggle"><input type="checkbox" id="mBpm"${memoEdit.takeBpm ? " checked" : ""}> als Song-Tempo übernehmen${s.bpm ? " (bisher " + s.bpm + (s.bpmAuto === false ? ", von Hand" : "") + ")" : ""}</label>` : ""}
       ${memoEdit.blob ? '<div><button class="btn sm" id="mPlayAll">▶ Aufnahme anhören</button></div>' : ""}`;
     box.appendChild(head);
     $("mName").value = M.name; $("mName").oninput = e => M.name = e.target.value;
-    $("mKind").onchange = e => { M.kind = e.target.value; M.apply = M.kind === "gesang"; renderMemoDlg(); };
-    const ap = $("mApply"); if (ap) ap.onchange = e => { M.apply = e.target.checked; renderMemoDlg(); };
+    $("mKind").onchange = e => { M.kind = e.target.value; };
     const pa = $("mPlayAll"); if (pa) pa.onclick = () => playBlob(memoEdit.blob, pa);
     const mb = $("mBpm"); if (mb) mb.onchange = e => memoEdit.takeBpm = e.target.checked;
     box.querySelectorAll("[data-bpmopt]").forEach(b => b.onclick = () => { memoEdit.bpm = +b.dataset.bpmopt; memoEdit.takeBpm = true; renderMemoDlg(); });
-    const map = M.kind === "gesang" && M.apply;
-    M.phrases.forEach((p, k) => {
-      const el = document.createElement("div"); el.className = "phr" + (map && p.target === "skip" ? " off" : "");
-      const t0 = p.notes[0].start, t1 = p.notes[p.notes.length - 1].end;
-      const opts = sec.lines.map((l, i) => `<option value="${i}"${p.target === String(i) ? " selected" : ""}>Zeile ${i + 1}: ${esc((l.text || "(leer)").slice(0, 30))}</option>`).join("")
-        + `<option value="new"${p.target === "new" ? " selected" : ""}>Als neue Zeile</option><option value="skip"${p.target === "skip" ? " selected" : ""}>Nicht verteilen</option>`;
-      el.innerHTML = `<div class="phr-head"><b style="color:var(--text)">Phrase ${k + 1}</b> ${fmtT(t0)}–${fmtT(t1)}
-        ${memoEdit.blob ? '<button class="btn sm" data-p="orig">▶ Original</button>' : ""}<button class="btn sm" data-p="syn">▶ Töne</button>
-        ${map ? `<select>${opts}</select>` : ""}</div><div class="nchips"></div>`;
-      const chips = el.querySelector(".nchips");
-      p.notes.forEach((nt, j) => {
-        const d = nt.end - nt.start, c = document.createElement("span"); c.className = "nchip" + (d < .09 ? " short" : "");
-        c.innerHTML = `${noteName(nt.m)}${octave(nt.m)}<small>${d.toFixed(2)}s</small><button title="Ton entfernen">✕</button>`;
-        c.querySelector("button").onclick = () => { p.notes.splice(j, 1); if (!p.notes.length) M.phrases.splice(k, 1); renderMemoDlg(); };
-        chips.appendChild(c);
-      });
-      const sel = el.querySelector("select"); if (sel) sel.onchange = e => { p.target = e.target.value; renderMemoDlg(); };
-      const ob = el.querySelector('[data-p="orig"]'); if (ob) ob.onclick = () => playBlob(memoEdit.blob, ob, t0, t1);
-      const sb = el.querySelector('[data-p="syn"]'); sb.onclick = () => pianoToggle(sb, () => timedEvents(p.notes, s, M.metro));
-      box.appendChild(el);
-    });
   }
   $("memoCancel").onclick = () => { stopAll(); $("memoDlg").classList.add("hidden"); memoEdit = null; };
   $("memoOk").onclick = () => {
@@ -1840,21 +1914,8 @@ function sylSplit(word, lang) {
     const { s, sec } = findSec(memoEdit.songId, memoEdit.secId); if (!sec) return;
     const M = memoEdit.memo; M.name = (M.name || "").trim() || KIND[M.kind];
     if (memoEdit.takeBpm && memoEdit.bpm && memoEdit.bpm !== s.bpm) { s.bpm = memoEdit.bpm; s.bpmAuto = s.bpmAuto !== false; renderTempo(); toast("Tempo: " + s.bpm + " BPM"); }
-    let used = 0;
-    if (M.kind === "gesang" && M.apply) {
-      const replace = $("mReplace") ? $("mReplace").checked : true, touched = new Set();
-      M.phrases.forEach(p => {
-        if (p.target === "skip" || !p.notes.length) return;
-        let line;
-        if (p.target === "new") { line = newLine(); sec.lines.push(line); p.target = String(sec.lines.length - 1); }
-        else line = sec.lines[+p.target];
-        if (!line) return;
-        if (replace && !touched.has(line)) { line.notes = []; line.rh = []; }
-        touched.add(line); line.rh = line.rh || [];
-        p.notes.forEach(n => { line.rh[line.notes.length] = { t: n.start, d: Math.max(.05, n.end - n.start), a: M.metro ? M.metro.a : null, b: M.metro ? M.metro.bpm : null }; line.notes.push(n.m); }); used++;
-      });
-    }
-    const memo = { metro: M.metro || null, id: M.id, name: M.name, kind: M.kind, applied: M.kind === "gesang" && M.apply && used > 0, created: M.created, dur: M.dur, phrases: M.phrases.map(p => ({ notes: p.notes, target: p.target })) };
+    const used = 0;
+    const memo = { metro: M.metro || null, id: M.id, name: M.name, kind: M.kind, applied: !!M.applied, created: M.created, dur: M.dur, phrases: M.phrases.map(p => ({ notes: p.notes, target: p.target })) };
     sec.memos = sec.memos || [];
     const i = sec.memos.findIndex(x => x.id === memo.id); if (i >= 0) sec.memos[i] = memo; else sec.memos.push(memo);
     if (memoEdit.isNew && memoEdit.blob) audioPut(memo.id, memoEdit.blob);
@@ -1867,11 +1928,10 @@ function sylSplit(word, lang) {
     box.innerHTML = "";
     (sec.memos || []).forEach(memo => {
       const d = document.createElement("div"); d.className = "memo";
-      const preview = memo.phrases.map(p => p.notes.map(n => noteName(n.m) + octave(n.m)).join(" ")).join(" / ");
       d.innerHTML = `<div class="memo-top"><span class="kpill ${memo.kind}">${esc(KIND[memo.kind] || memo.kind)}</span><b>${esc(memo.name)}</b>
-          <small>${fmtT(memo.dur || 0)} · ${memoNotes(memo)} Töne${memo.applied ? " · auf Zeilen verteilt" : ""}</small>
-          <span class="memo-acts"><button class="btn sm ghost" data-m="orig" hidden>▶ Aufnahme</button><button class="btn sm ghost" data-m="syn">▶ Töne</button><button class="btn sm ghost" data-m="edit">✎</button><button class="btn sm ghost" data-m="save" hidden title="Aufnahme als Datei speichern">⬇</button><button class="btn sm ghost" data-m="del">🗑</button></span></div>
-        ${preview ? `<div class="memo-notes">♪ ${esc(preview)}</div>` : ""}`;
+          <small>${fmtT(memo.dur || 0)} · ${memoNotes(memo)} Töne erkannt</small>
+          <span class="memo-acts"><button class="btn sm ghost" data-m="orig" hidden>▶ Anhören</button><button class="btn sm ghost" data-m="edit" title="Name und Art ändern">✎</button><button class="btn sm ghost" data-m="save" hidden title="Aufnahme als Datei speichern">⬇</button><button class="btn sm ghost" data-m="del">🗑</button></span></div>
+`;
       audioGet(memo.id).then(b => { if (b) { d.querySelector('[data-m="orig"]').hidden = false; d.querySelector('[data-m="save"]').hidden = false; d._blob = b; } });
       d.querySelector(".memo-acts").onclick = e => {
         const btn = e.target.closest("[data-m]"); if (!btn) return; const a = btn.dataset.m;
@@ -1891,8 +1951,16 @@ function sylSplit(word, lang) {
     });
   }
   // Memo als Textzeile für den Austausch mit dem Partner / Claude
-  const memoLine = (m, fl) => `  Memo «${m.name}» (${KIND[m.kind] || "Sonstiges"}${m.applied ? "; auf Zeilen verteilt" : ""}): ` +
-    m.phrases.map(p => p.notes.map(n => intl(n.m, fl) + octave(n.m) + " " + (n.end - n.start).toFixed(2) + "s").join(", ")).join(" / ");
+  const memoLine = (m, fl, s) => `  Memo «${m.name}» (${KIND[m.kind] || "Sonstiges"}${m.applied ? "; auf Zeilen verteilt" : ""}): ` +
+    m.phrases.map(p => p.notes.map(n => intl(n.m, fl) + octave(n.m) + " " + (n.end - n.start).toFixed(2) + "s").join(", ")).join(" / ") + (s ? memoRhythmLine(m, s) : "");
+  // Rhythmus eines Memos im Taktraster: pro Ton Position/Länge in Sechzehnteln ab dem ersten Takt des Memos, Phrasen mit | getrennt.
+  // Mit Metronom genau (Klick-Zeitpunkte bekannt), sonst aus dem geschätzten Tempo.
+  function memoRhythmLine(m, s) {
+    const all = m.phrases.flatMap(p => p.notes), bpm = m.metro ? m.metro.bpm : s.bpm; if (!all.length || !bpm) return "";
+    const q = quantize(all.map(n => ({ t: n.start, d: n.end - n.start })), bpm, m.metro ? m.metro.a : null, s.grid || "8", meterOf(s).beats, spbOf(s));
+    let k = 0; const parts = m.phrases.map(p => p.notes.map(() => { const z = q[k++]; return z.p + "/" + z.l; }).join(" "));
+    return `\n  Memo-Rhythmus «${m.name}» (${meterOf(s).sig}, ${bpm} BPM, ${m.metro ? "mit Metronom" : "Tempo geschätzt, ohne Metronom"}): ` + parts.join(" | ");
+  }
   function parseMemoLine(l) {
     const m = l.match(/^\s+Memo «(.*)» \(([^);]+)(;[^)]*)?\):\s*(.*)$/); if (!m) return null;
     let t = 0;
