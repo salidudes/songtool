@@ -70,7 +70,8 @@
   .focus-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; }
   .focus-head #focusRec { margin-left: auto; }
   .fhint { font-size: 12px; color: var(--muted); text-align: left; margin-top: 6px; }
-  #dock:not(.sticky) .level { display: none; }
+  #dock:not(.sticky) .level, #dock:not(.sticky) #trace { display: none; }
+  #dock #trace { margin: 0 0 8px; }
   #dock .tempo-row[hidden], #dock .err:empty { display: none; }
   #dock .tempo-row { margin: 0 0 8px; padding: 0 0 8px; border-top: none; border-bottom: 1px solid var(--line); }
   #dock .focus { margin-top: 0; padding-top: 0; border-top: none; }
@@ -261,7 +262,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v26</small></h1>
+    <h1>Song<span>tool</span> <small style="font-size:11px;color:var(--muted);font-weight:400">v27</small></h1>
     <div class="settings">
       <button id="syncDot" title="Synchronisation">☁ aus</button>
       <button class="btn sm" id="settingsBtn" title="Einstellungen">⚙</button>
@@ -295,7 +296,7 @@
         </div>
         <button class="btn primary" id="startBtn">🎤 Start</button>
       </div>
-      <canvas id="trace" style="display:none"></canvas>
+      <canvas id="trace"></canvas>
       <div class="level"><span>Mikro</span><div class="lvl"><div id="levelBar"></div></div></div>
       <div class="err" id="err"></div>
       <div class="tempo-row" id="tempoRow" hidden></div>
@@ -1221,11 +1222,12 @@ function sylSplit(word, lang) {
     out += `- «Rhythmus» = pro Note «Position/Länge» in Sechzehnteln ab Taktanfang (0 = auf der Eins).\n`;
     out += `- «Memo» = separate Sprachaufnahme zu diesem Teil (Ton + Dauer, Phrasen mit / getrennt), z.B. eine gesummte Melodie-Idee.\n`;
     out += `- «Memo-Rhythmus» = dieselben Töne im Taktraster: Position/Länge in Sechzehnteln ab dem ersten Takt des Memos, Phrasen mit | getrennt.\n`;
+    out += `- «Memo-Verlauf» = Tonhöhen-Verlauf des Memos in Kurzschrift (der Partner zeichnet daraus ein Bild).\n`;
     s.sections.forEach((sec, si) => {
       const lines = sec.lines.filter(l => l.text.trim() || l.notes.length), memos = sec.memos || [];
       if (!lines.length && !memos.length) return;
       out += `\n[${secLabel(s, si)}]\n`;
-      memos.forEach(m => out += memoLine(m, fl, s) + "\n");
+      memos.forEach(m => out += memoLine(m, fl, s) + memoCurveLine(m, s) + "\n");
       lines.forEach(line => {
         const us = units(line, s.lang);
         out += (line.text.trim() || "(ohne Text)") + "\n";
@@ -1388,7 +1390,7 @@ function sylSplit(word, lang) {
       if (legend) { if (/^-\s/.test(l)) return; legend = false; }
       if ((m = l.match(/^\[(.+)\]$/))) { const base = m[1].trim().replace(/\s+\d+$/, ""); sec = { id: uid(), type: TYPES.includes(base) ? base : m[1].trim(), lines: [], memos: [] }; out.sections.push(sec); last = null; return; }
       if (/^\s+Memo «/.test(l)) { const mm = parseMemoLine(l); if (mm && sec) sec.memos.push(mm); return; }
-      if (/^\s+Memo-Rhythmus «/.test(l)) return;   // rechnet die App selbst aus ihren Memos
+      if (/^\s+Memo-(Rhythmus|Verlauf) «/.test(l)) return;   // rechnet die App selbst aus ihren Memos
       if (/^\s+Längen:/.test(l)) return;
       if ((m = l.match(/^\s+Rhythmus:\s*(.*)$/))) { if (last) last._rq = m[1]; return; }
       if ((m = l.match(/^\s+Melodie:\s*(.*)$/))) { if (last) last._mel = m[1]; return; }
@@ -1739,6 +1741,27 @@ function sylSplit(word, lang) {
     finally { try { ac.close(); } catch {} }
   }
   // Tonhöhe pro 10 ms (YIN auf ~16 kHz), dann Glättung zu Tönen wie in der App
+  // Tonhöhen-Verlauf eines Memos für den Partner (dort als Bild für Claude): alle 40 ms Tonhöhe (0.1 Halbton genau) und Lautstärke.
+  // Kompakt als Text: pro Punkt 2 Zeichen Tonhöhe + 1 Zeichen Lautstärke.
+  const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  // einzelne Ausreisser (Einschwingen, Oktavfehler) aus dem Verlauf nehmen: weiter als 3 Halbtöne von beiden Nachbarn
+  function despike(p) {
+    const n = p.length >> 1, v = []; for (let i = 0; i < n; i++) v.push(B64.indexOf(p[2 * i]) * 64 + B64.indexOf(p[2 * i + 1]));
+    const far = (a, b) => b === 4095 || Math.abs(a - b) > 30;
+    let out = ""; for (let i = 0; i < n; i++) { let x = v[i]; if (x !== 4095 && far(x, i ? v[i - 1] : 4095) && far(x, i + 1 < n ? v[i + 1] : 4095)) x = 4095; out += B64[x >> 6] + B64[x & 63]; }
+    return out;
+  }
+  function makeCurve(fr) {
+    if (!fr.length) return null;
+    const step = 4, mx = Math.max(1e-6, ...fr.map(q => q.rms)); let p = "", l = "";
+    for (let i = 0; i < fr.length; i += step) {
+      const blk = fr.slice(i, i + step), ms = blk.map(q => q.m).filter(m => m != null), r = Math.max(...blk.map(q => q.rms));
+      const v = ms.length ? Math.max(0, Math.min(4094, Math.round((median(ms) - 24) * 10))) : 4095;
+      p += B64[v >> 6] + B64[v & 63];
+      l += B64[Math.max(0, Math.min(63, Math.round((20 * Math.log10(r / mx + 1e-9) + 48) / 48 * 63)))];
+    }
+    return { dt: .04, t0: fr[0].t, p: despike(p), l };
+  }
   async function analyze(audio, onProg) {
     const ch = audio.numberOfChannels, len = audio.length, sr0 = audio.sampleRate;
     const fct = Math.max(1, Math.floor(sr0 / 16000)), sr = sr0 / fct, n = Math.floor(len / fct), x = new Float32Array(n);
@@ -1781,8 +1804,12 @@ function sylSplit(word, lang) {
       if (!seg) { seg = { vals: [q.m], pts: [q], start: q.t, c: q.m, peak: q.rms }; continue; }
       // Tonwiederholung: kurzer Lautstärke-Einbruch (Konsonant) und wieder laut → neuer Ton
       if (Math.abs(q.m - seg.c) < TOL) {
-        if (q.rms < seg.peak * .7 && q.t - seg.start > .05) seg.dip = true;
-        else if (seg.dip && q.rms > seg.peak * .88) { close(q.t); seg = { vals: [q.m], pts: [q], start: q.t, c: q.m, peak: q.rms }; continue; }
+        // nur ein deutlicher, schneller Neuanschlag zählt – Lautstärke-Vibrato eines gehaltenen Tons nicht (sonst Doppeltöne)
+        if (q.rms < seg.peak * .5 && q.t - seg.start > .05) { if (!seg.dip || q.rms < seg.dipMin) { seg.dipMin = q.rms; seg.dipT = q.t; } seg.dip = true; }
+        else if (seg.dip && q.rms > seg.peak * .75) {
+          if (q.rms > seg.dipMin * 2.5 && q.t - seg.dipT < .1) { const st = seg.dipT + .01; close(st); seg = { vals: [q.m], pts: [q], start: st, c: q.m, peak: q.rms }; continue; }
+          seg.dip = false;
+        }
         seg.peak = Math.max(seg.peak, q.rms);
         seg.vals.push(q.m); seg.pts.push(q); if (seg.pts.length > 60) seg.pts.shift(); if (seg.vals.length > 80) seg.vals.shift(); seg.c = tmean(seg.vals); if (++inTol >= 2) cand = []; }
       else {
@@ -1796,6 +1823,7 @@ function sylSplit(word, lang) {
     if (seg) close(last + .01);
     // Phrasen: Pausen ab 0.4 s trennen
     const phr = []; notes.forEach(nt => { const p = phr[phr.length - 1]; if (!p || nt.start - p.notes[p.notes.length - 1].end > .4) phr.push({ notes: [nt] }); else p.notes.push(nt); });
+    phr.curve = makeCurve(fr);
     return phr;
   }
 
@@ -1875,7 +1903,7 @@ function sylSplit(word, lang) {
       const opts = metro ? [metro.bpm] : guess ? [guess, Math.round(guess / 2), guess * 2].filter(v => v >= 40 && v <= 240) : [];
       const bpmGuess = opts.length ? (s.bpm && !metro ? opts.reduce((a, v) => Math.abs(v - s.bpm) < Math.abs(a - s.bpm) ? v : a) : opts[0]) : null;
       const time = new Date().toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" });
-      memoEdit = { songId, secId, blob, isNew: true, bpm: bpmGuess, bpmOpts: opts, fromMetro: !!metro, takeBpm: !!bpmGuess && s.bpmAuto !== false, memo: { metro: metro || null, id: uid(), name: secLabel(s, s.sections.indexOf(sec)) + " " + time, kind: "gesang", apply: cnt > 0, applied: false, created: Date.now(), dur: Math.round(audio.duration * 10) / 10, phrases: phr } };
+      memoEdit = { songId, secId, blob, isNew: true, bpm: bpmGuess, bpmOpts: opts, fromMetro: !!metro, takeBpm: !!bpmGuess && s.bpmAuto !== false, memo: { metro: metro || null, id: uid(), name: secLabel(s, s.sections.indexOf(sec)) + " " + time, kind: "gesang", apply: cnt > 0, applied: false, created: Date.now(), dur: Math.round(audio.duration * 10) / 10, phrases: phr, curve: phr.curve || null } };
       $("memoInfo").textContent = cnt ? `${fmtT(audio.duration)} · ${cnt} Töne in ${phr.length} Phrase(n) erkannt` + (fixed ? ` · ${fixed} unsauber gesungene an ${fkey ? keyName(fkey) : "deine Stimmung"} angepasst` : "") : `${fmtT(audio.duration)} · keine Töne erkannt – das Memo kannst du trotzdem speichern`;
       renderMemoDlg(); $("memoOk").disabled = false;
     } catch (e) {
@@ -1915,7 +1943,7 @@ function sylSplit(word, lang) {
     const M = memoEdit.memo; M.name = (M.name || "").trim() || KIND[M.kind];
     if (memoEdit.takeBpm && memoEdit.bpm && memoEdit.bpm !== s.bpm) { s.bpm = memoEdit.bpm; s.bpmAuto = s.bpmAuto !== false; renderTempo(); toast("Tempo: " + s.bpm + " BPM"); }
     const used = 0;
-    const memo = { metro: M.metro || null, id: M.id, name: M.name, kind: M.kind, applied: !!M.applied, created: M.created, dur: M.dur, phrases: M.phrases.map(p => ({ notes: p.notes, target: p.target })) };
+    const memo = { curve: M.curve || null, metro: M.metro || null, id: M.id, name: M.name, kind: M.kind, applied: !!M.applied, created: M.created, dur: M.dur, phrases: M.phrases.map(p => ({ notes: p.notes, target: p.target })) };
     sec.memos = sec.memos || [];
     const i = sec.memos.findIndex(x => x.id === memo.id); if (i >= 0) sec.memos[i] = memo; else sec.memos.push(memo);
     if (memoEdit.isNew && memoEdit.blob) audioPut(memo.id, memoEdit.blob);
@@ -1960,6 +1988,17 @@ function sylSplit(word, lang) {
     const q = quantize(all.map(n => ({ t: n.start, d: n.end - n.start })), bpm, m.metro ? m.metro.a : null, s.grid || "8", meterOf(s).beats, spbOf(s));
     let k = 0; const parts = m.phrases.map(p => p.notes.map(() => { const z = q[k++]; return z.p + "/" + z.l; }).join(" "));
     return `\n  Memo-Rhythmus «${m.name}» (${meterOf(s).sig}, ${bpm} BPM, ${m.metro ? "mit Metronom" : "Tempo geschätzt, ohne Metronom"}): ` + parts.join(" | ");
+  }
+  // Verlauf für den Partner (der zeichnet daraus ein Bild); mit der Zeit des ersten Takts, damit er das Taktraster einzeichnen kann
+  function memoCurveLine(m, s) {
+    const c = m.curve; if (!c || !c.p) return "";
+    const all = m.phrases.flatMap(p => p.notes), bpm = m.metro ? m.metro.bpm : s.bpm; let bar = "";
+    if (all.length && bpm) {
+      const q = quantize(all.map(n => ({ t: n.start, d: n.end - n.start })), bpm, m.metro ? m.metro.a : null, s.grid || "8", meterOf(s).beats, spbOf(s));
+      bar = `; Takt 1 bei ${(all[0].start - q[0].p * 60 / bpm / spbOf(s)).toFixed(3)}s; ${bpm} BPM; ${meterOf(s).sig}`;
+    }
+    // Teil 3: Einsatzzeiten der Töne (Hundertstelsekunden), damit die Töne im Bild genau auf der Kurve liegen
+    return `\n  Memo-Verlauf «${m.name}» (${Math.round(c.dt * 1000)}ms ab ${c.t0.toFixed(3)}s${bar}): ${c.p}.${c.l}.${all.map(n => Math.round(n.start * 100)).join(",")}`;
   }
   function parseMemoLine(l) {
     const m = l.match(/^\s+Memo «(.*)» \(([^);]+)(;[^)]*)?\):\s*(.*)$/); if (!m) return null;
